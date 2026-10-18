@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=77.0.3", "py2app==0.28.10"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pfountz-sudoku"
+version = "0.3.3"
+description = "A native macOS Sudoku app with offline daily games"
+authors = [{name = "Greg Pfountz"}]
+license = "GPL-3.0-only"
+license-files = ["LICENSE", "sudoku/data/PUZZLE-LICENSE.txt", "sudoku/data/licenses/third-party/*.txt"]
+requires-python = ">=3.13"
+dependencies = [
+    "pyobjc-framework-Cocoa>=12.0",
+    "pyobjc-framework-Vision>=12.0",
+    "pyobjc-framework-Quartz>=12.0",
+    "opencv-python-headless>=4.13",
+    "numpy>=2.4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.12", "mypy>=1.15", "py2app>=0.28"]
+
+[project.scripts]
+sudoku = "sudoku.app:main"
+
+[tool.setuptools.packages.find]
+include = ["sudoku*"]
+
+[tool.setuptools.package-data]
+sudoku = [
+    "data/catalog/manifest.json", "data/catalog/*/*.sqlite", "data/*.txt",
+    "data/licenses/*.txt", "data/licenses/*.json", "data/licenses/third-party/*.txt",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+extend-exclude = ["build", "dist", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ANN", "D"]
+ignore = ["D100", "D104", "D203", "D213", "ANN401"]
+
+[tool.ruff.lint.per-file-ignores]
+"sudoku/app.py" = ["N802"]
+"sudoku/board.py" = ["N802"]
+
+[tool.mypy]
+python_version = "3.13"
+check_untyped_defs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true

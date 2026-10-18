@@ -1,0 +1,29 @@
+Third-party software in Sudoku for macOS
+
+These upstream license texts are reproduced verbatim. They do not become
+Greg Pfountz's copyrighted work or lose their original license terms.
+The inventory records the reviewed versions, notice origins and SHA-256
+hashes, and the native libraries present in the reviewed macOS wheels.
+
+Python: Python Software Foundation license and historical notices.
+PyObjC (core, Cocoa, Quartz, Vision): MIT license.
+NumPy: BSD and additional licenses reproduced in the wheel notices.
+OpenCV Python wrapper: MIT; OpenCV and embedded components: see the full
+upstream LICENSE-3RD-PARTY text, including Apache, BSD, GPL and LGPL notices.
+Setuptools and its vendored helpers: MIT and additional bundled notices.
+py2app launcher: MIT or PSF terms; the upstream text is included here.
+Apple frameworks are supplied by macOS and are not redistributed here.
+
+Important OpenCV binary provenance qualification
+The reviewed opencv-python-headless 5.0.0.93 macOS ARM64 wheel contains
+99 native libraries. Its libavcodec reports "GPL version 3 or later" and
+was built with --enable-gpl and --enable-version3. The upstream bundled
+notice describes FFmpeg as LGPL. Preserve that notice, but do not treat
+it as a complete, verified license inventory for every native library.
+This discrepancy is tracked at:
+https://github.com/opencv/opencv-python/issues/1260
+
+Before publishing an app binary, resolve the exact licenses and matching
+source/build materials for its bundled native libraries. Including these
+notices alone does not complete GPL/LGPL source-distribution obligations.
+See docs/licensing.md and docs/opencv-binary-audit.md in the source tree.

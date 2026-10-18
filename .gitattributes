@@ -1,0 +1,8 @@
+* text=auto eol=lf
+*.icns binary
+*.png binary
+*.jpg binary
+*.zip binary
+
+# Preserve upstream legal notices byte for byte, including original whitespace.
+sudoku/data/licenses/third-party/*.txt -text -whitespace
