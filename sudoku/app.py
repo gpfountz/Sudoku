@@ -1585,7 +1585,7 @@ class AppController(NSObject):
     def build_about_dialog(self) -> Any:
         """Build the About notice with author, license, warranty, and puzzle credits."""
         return self.build_message_dialog(
-            "Sudoku 0.3.3",
+            "Sudoku 1.0.0",
             "A native macOS Sudoku app written in Python.\n\n"
             f"{COPYRIGHT_NOTICE}\nOriginal author: Greg Pfountz\n\n"
             "Licensed under the GNU General Public License, version 3 only. "

@@ -47,8 +47,8 @@ setup(
                 "CFBundleIdentifier": "com.pfountz.sudoku",
                 "NSHumanReadableCopyright": "Copyright © 2026 Greg Pfountz",
                 "LSMinimumSystemVersion": "27.0",
-                "CFBundleShortVersionString": "0.3.3",
-                "CFBundleVersion": "23",
+                "CFBundleShortVersionString": "1.0.0",
+                "CFBundleVersion": "24",
                 "NSHighResolutionCapable": True,
             },
         }
