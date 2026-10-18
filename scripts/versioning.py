@@ -170,6 +170,8 @@ def prepare_version(root: Path) -> Version:
     path: Path = root / VERSION_FILE
     source: str = path.read_text()
     current: Version = version_from_source(source)
+    if not git(root, "diff", "--cached", "--name-only"):
+        return current
     staged_source: str | None = git(root, "show", f":{VERSION_FILE}", optional=True, raw=True)
     if staged_source is None:
         raise ValueError(f"Stage {VERSION_FILE} before enabling automatic versioning.")

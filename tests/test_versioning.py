@@ -101,6 +101,24 @@ def test_main_batches_end_only_after_successful_push(repository: Repository) -> 
     assert repository.version() == "1.0.2"
 
 
+@pytest.mark.parametrize("allow_empty", [False, True])
+@pytest.mark.parametrize("branch", ["main", "codex/feature-empty"])
+def test_no_source_changes_do_not_prepare_a_version(
+    repository: Repository, allow_empty: bool, branch: str
+) -> None:
+    """Leave the version alone for empty CI commits and unsuccessful no-change attempts."""
+    if branch != "main":
+        repository.git("switch", "-c", branch)
+    arguments: list[str] = ["commit", "-m", "no source changes"]
+    if allow_empty:
+        arguments.append("--allow-empty")
+    repository.git(*arguments, success=allow_empty)
+    assert repository.version() == "1.0.0"
+    assert repository.git("status", "--porcelain") == ""
+    repository.commit("actual change")
+    assert repository.version() == ("1.0.1" if branch == "main" else "1.1.0")
+
+
 def test_feature_once_then_pr_fixes_use_patch_batches(repository: Repository) -> None:
     """Reserve one minor, then increment patch once for each pushed PR-fix batch."""
     repository.git("switch", "-c", "codex/new-display")

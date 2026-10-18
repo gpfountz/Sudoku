@@ -145,11 +145,12 @@ For PR repairs on a misleadingly named branch, explicitly select patch behavior:
 A successful push updates the `origin/<branch>` tracking reference and ends a batch.
 A failed push does not. Normal, fast-forward, and squash feature merges retain the existing
 release version; the merge driver selects the higher version when both branches changed it.
+No-change commit attempts and empty CI-trigger commits leave the version unchanged.
 Unrelated edits to the version file still need ordinary conflict resolution.
 Hooks stage only the shared version file, retaining unrelated partially staged edits.
 Use the existing `origin` remote and fetch it before beginning work in a clone with stale state.
 
-For an explicitly approved major release, edit only the shared version and commit with
+For an explicitly approved major release, edit and stage the shared version, then commit with
 `git -c sudoku.versioning.manual=true commit ...`. Never use that override to bypass a
 versioning error without understanding its cause. The internal macOS `CFBundleVersion`
 build identifier remains separate and is not incremented by source commits.
