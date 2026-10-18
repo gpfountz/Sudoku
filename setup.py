@@ -9,6 +9,8 @@ import os
 from py2app.build_app import py2app
 from setuptools import setup
 
+from sudoku.version import APP_VERSION
+
 
 class BundleCommand(py2app):
     """Bundle dependencies already installed through the project's development extra."""
@@ -47,7 +49,7 @@ setup(
                 "CFBundleIdentifier": "com.pfountz.sudoku",
                 "NSHumanReadableCopyright": "Copyright © 2026 Greg Pfountz",
                 "LSMinimumSystemVersion": "27.0",
-                "CFBundleShortVersionString": "1.0.0",
+                "CFBundleShortVersionString": APP_VERSION,
                 "CFBundleVersion": "24",
                 "NSHighResolutionCapable": True,
             },

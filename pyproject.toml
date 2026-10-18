@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pfountz-sudoku"
-version = "1.0.0"
+dynamic = ["version"]
 description = "A native macOS Sudoku app with offline daily games"
 authors = [{name = "Greg Pfountz"}]
 license = "GPL-3.0-only"
@@ -26,6 +26,9 @@ sudoku = "sudoku.app:main"
 
 [tool.setuptools.packages.find]
 include = ["sudoku*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "sudoku.version.APP_VERSION"}
 
 [tool.setuptools.package-data]
 sudoku = [

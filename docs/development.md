@@ -5,6 +5,7 @@
 - [Requirements](#requirements)
 - [Setup and source launch](#setup-and-source-launch)
 - [Checks](#checks)
+- [Automatic versioning](#automatic-versioning)
 - [Theme implementation](#theme-implementation)
 - [Building and installing](#building-and-installing)
 - [Local data and recovery](#local-data-and-recovery)
@@ -96,6 +97,62 @@ RUN_NATIVE_LAYOUT_TESTS=1 .venv/bin/python -m pytest -q
 ```
 
 See [Validation](../VALIDATION.md) for source-check results and historical bundle verification.
+
+## Automatic versioning
+
+The maintainer's local Git workflow updates the application version at commit time.
+File saves alone do not change it. The package metadata, macOS bundle version, and About
+dialog all read `APP_VERSION` from `sudoku/version.py`.
+Editable installs cache their package metadata. After a local version bump, rerun
+`.venv/bin/python -m pip install -e .` if you need to refresh the installed version shown by
+`pip show`; the source app and future builds read the shared version directly.
+
+Install the hooks once per clone, after creating its virtual environment:
+
+```sh
+.venv/bin/python -m scripts.versioning install
+```
+
+The installer preserves other active hook configurations and refuses to replace them.
+It installs `pre-commit` and `pre-merge-commit` hooks plus a version-file merge driver.
+Reinstall or integrate the hooks if you relocate the checkout or use another hook manager.
+GitHub web edits and clones without these hooks do not automatically bump versions.
+
+| Work | Version behavior |
+| --- | --- |
+| First commit on `main` after a push | Increment patch once, such as `1.0.0` → `1.0.1` |
+| Further commits before a successful push | Keep the same version |
+| New feature's first commit | Increment minor once and reset patch, such as `1.0.4` → `1.1.0` |
+| Follow-up PR fixes after a feature push | Increment patch once per new batch, such as `1.1.0` → `1.1.1` |
+| Bug-fix or unclassified branch | Use patch batches, not a new minor |
+| Feature merge into `main` | Preserve the feature version without an extra patch |
+| Major change | Only by explicit maintainer instruction |
+
+Mark genuine feature work before its first commit:
+
+```sh
+git switch -c codex/new-feature
+.venv/bin/python -m scripts.versioning kind feature
+```
+
+Branches named `feature/...` or `codex/feature-...` are also classified as features.
+For PR repairs on a misleadingly named branch, explicitly select patch behavior:
+
+```sh
+.venv/bin/python -m scripts.versioning kind fix
+```
+
+A successful push updates the `origin/<branch>` tracking reference and ends a batch.
+A failed push does not. Normal, fast-forward, and squash feature merges retain the existing
+release version; the merge driver selects the higher version when both branches changed it.
+Unrelated edits to the version file still need ordinary conflict resolution.
+Hooks stage only the shared version file, retaining unrelated partially staged edits.
+Use the existing `origin` remote and fetch it before beginning work in a clone with stale state.
+
+For an explicitly approved major release, edit only the shared version and commit with
+`git -c sudoku.versioning.manual=true commit ...`. Never use that override to bypass a
+versioning error without understanding its cause. The internal macOS `CFBundleVersion`
+build identifier remains separate and is not incremented by source commits.
 
 ## Theme implementation
 

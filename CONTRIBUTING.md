@@ -23,6 +23,8 @@ See [LICENSE](LICENSE) and the [licensing guide](docs/licensing.md) for details.
 Follow the existing Python style: meaningful names, focused functions, type annotations,
 clear docstrings, and consistent formatting. Include focused regression coverage for behavior
 changes. Run the checks in the [development guide](docs/development.md#checks).
+See [automatic versioning](docs/development.md#automatic-versioning) before committing maintainer
+changes; feature additions and PR fixes use different version increments.
 
 For dependency or packaging changes, review and refresh the upstream notices and provenance
 inventory as described in the [licensing guide](docs/licensing.md#dependency-and-notice-maintenance).

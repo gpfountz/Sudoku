@@ -37,6 +37,7 @@ from sudoku.model import Game, Preferences, Snapshot
 from sudoku.storage import Store, game_data
 from sudoku.theme import DEFAULT_THEME, THEMES, WARM_PAPER_THEME, theme_for_name
 from sudoku.theme_names import THEME_NAMES
+from sudoku.version import APP_VERSION
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("RUN_NATIVE_LAYOUT_TESTS") != "1",
@@ -1376,6 +1377,7 @@ def test_about_dialog_displays_author_and_offline_notice_actions(
     alert: Any = controller.build_about_dialog()
     try:
         alert.layout()
+        assert alert.messageText() == f"Sudoku {APP_VERSION}"
         assert COPYRIGHT_NOTICE in alert.informativeText()
         assert "version 3 only" in alert.informativeText()
         assert "no warranty" in alert.informativeText()

@@ -45,6 +45,7 @@ from sudoku.statistics_ui import StatisticsWindow
 from sudoku.storage import SaveError, Store
 from sudoku.theme import DEFAULT_THEME, Theme, theme_for_name
 from sudoku.theme_names import THEME_NAMES
+from sudoku.version import APP_VERSION
 
 
 class AppController(NSObject):
@@ -1585,7 +1586,7 @@ class AppController(NSObject):
     def build_about_dialog(self) -> Any:
         """Build the About notice with author, license, warranty, and puzzle credits."""
         return self.build_message_dialog(
-            "Sudoku 1.0.0",
+            f"Sudoku {APP_VERSION}",
             "A native macOS Sudoku app written in Python.\n\n"
             f"{COPYRIGHT_NOTICE}\nOriginal author: Greg Pfountz\n\n"
             "Licensed under the GNU General Public License, version 3 only. "
