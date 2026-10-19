@@ -266,8 +266,18 @@ def recognize_repeated_digit(patch: ImageArray, copies: int) -> tuple[int, float
     return 0, 0.0
 
 
+def compact_digit_patch(patch: ImageArray) -> ImageArray | None:
+    """Reduce horizontal whitespace so repeated thin digits form one detectable text line."""
+    columns: Any = np.flatnonzero(np.any(patch < 128, axis=0))
+    if not len(columns):
+        return None
+    left: int = max(0, int(columns[0]) - 16)
+    right: int = min(patch.shape[1], int(columns[-1]) + 17)
+    return patch[:, left:right]
+
+
 def recognize_digit(patch: ImageArray) -> tuple[int, bool]:
-    """Recheck inconclusive OCR with two layouts, retaining conflicting or weak readings."""
+    """Retry inconclusive OCR with varied counts and spacing, preserving conflicting readings."""
     value: int
     confidence: float
     value, confidence = recognize_repeated_digit(patch, 3)
@@ -280,6 +290,16 @@ def recognize_digit(patch: ImageArray) -> tuple[int, bool]:
     first, first_confidence = recognize_repeated_digit(patch, 2)
     second, second_confidence = recognize_repeated_digit(patch, 4)
     if first and first == second and (not value or value == first):
+        return first, min(first_confidence, second_confidence) < 0.85
+    readings: set[int] = {digit for digit in (value, first, second) if digit}
+    if len(readings) > 1:
+        return value, True
+    compact: ImageArray | None = compact_digit_patch(patch)
+    if compact is None:
+        return value, True
+    first, first_confidence = recognize_repeated_digit(compact, 2)
+    second, second_confidence = recognize_repeated_digit(compact, 3)
+    if first and first == second and (not readings or first in readings):
         return first, min(first_confidence, second_confidence) < 0.85
     return value, True
 

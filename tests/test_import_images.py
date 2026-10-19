@@ -16,6 +16,7 @@ import pytest
 from sudoku.import_images import (
     GridRegion,
     ImageArray,
+    compact_digit_patch,
     decode_image,
     detect_grids,
     digit_patch,
@@ -251,6 +252,36 @@ def test_bottom_eight_from_colored_screenshot() -> None:
     assert recognize_digit(patch) == (8, False)
 
 
+@pytest.mark.skipif(os.environ.get("RUN_NATIVE_LAYOUT_TESTS") != "1", reason="Local Vision runtime")
+@pytest.mark.parametrize("size", [None, 320, 480])
+def test_thin_digits_from_import_screenshot(size: int | None) -> None:
+    """Read every clue and blank, including four thin 8s and four 3s, from a real import."""
+    path: Path = Path(__file__).parent / "fixtures" / "import-thin-digits.png"
+    image: ImageArray = decode_image(read_image_file(path))
+    if size is not None:
+        image = cv2.resize(image, (size, size), interpolation=cv2.INTER_AREA)
+    height: int
+    width: int
+    height, width = image.shape[:2]
+    region: GridRegion = GridRegion(
+        ((0, 0), (width - 1, 0), (width - 1, height - 1), (0, height - 1))
+    )
+    expected: tuple[str, ...] = (
+        "300914005",
+        "105006000",
+        "960000800",
+        "013008400",
+        "090432080",
+        "002500360",
+        "007000096",
+        "000600708",
+        "600257004",
+    )
+    recognized = recognize_grid(image, region)
+    assert recognized.values == tuple(int(digit) for row in expected for digit in row)
+    assert not recognized.uncertain
+
+
 @pytest.mark.parametrize(
     ("initial", "pair", "four", "expected"),
     [
@@ -278,3 +309,67 @@ def test_recognition_rechecks_preserve_uncertainty(
 
     monkeypatch.setattr(import_images, "recognize_repeated_digit", reading)
     assert recognize_digit(np.full((170, 170), 255, dtype=np.uint8)) == expected
+
+
+def test_compact_patch_preserves_glyph_and_vertical_padding() -> None:
+    """Change spacing without thickening, clipping, or inventing ink in a blank patch."""
+    patch: ImageArray = np.full((170, 170), 255, dtype=np.uint8)
+    assert compact_digit_patch(patch) is None
+    cv2.putText(patch, "8", (50, 140), cv2.FONT_HERSHEY_SIMPLEX, 4.5, 0, 2)
+    original: ImageArray = patch.copy()
+    compact: ImageArray | None = compact_digit_patch(patch)
+    assert compact is not None
+    assert compact.shape[0] == patch.shape[0]
+    assert compact.shape[1] < patch.shape[1]
+    assert np.count_nonzero(compact < 128) == np.count_nonzero(patch < 128)
+    assert np.all(compact[:, :16] == 255)
+    assert np.all(compact[:, -16:] == 255)
+    assert np.array_equal(patch, original)
+
+
+@pytest.mark.parametrize(
+    ("originals", "compact_pair", "compact_triple", "expected"),
+    [
+        (((0, 0.0), (0, 0.0), (0, 0.0)), (8, 1.0), (8, 1.0), (8, False)),
+        (((0, 0.0), (0, 0.0), (0, 0.0)), (3, 1.0), (3, 1.0), (3, False)),
+        (((0, 0.0), (8, 1.0), (0, 0.0)), (8, 1.0), (8, 1.0), (8, False)),
+        (((8, 0.75), (0, 0.0), (0, 0.0)), (8, 1.0), (8, 1.0), (8, False)),
+        (((0, 0.0), (0, 0.0), (0, 0.0)), (8, 0.75), (8, 1.0), (8, True)),
+        (((0, 0.0), (0, 0.0), (0, 0.0)), (8, 1.0), (3, 1.0), (0, True)),
+        (((0, 0.0), (0, 0.0), (0, 0.0)), (8, 1.0), (0, 0.0), (0, True)),
+        (((3, 0.75), (0, 0.0), (0, 0.0)), (8, 1.0), (8, 1.0), (3, True)),
+        (((0, 0.0), (3, 1.0), (0, 0.0)), (8, 1.0), (8, 1.0), (0, True)),
+        (((8, 0.75), (3, 1.0), (0, 0.0)), (8, 1.0), (8, 1.0), (8, True)),
+    ],
+)
+def test_compact_recognition_requires_agreement(
+    originals: tuple[tuple[int, float], ...],
+    compact_pair: tuple[int, float],
+    compact_triple: tuple[int, float],
+    expected: tuple[int, bool],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Recover missing 8s and 3s only when repeated compact readings agree with prior evidence."""
+    from sudoku import import_images
+
+    patch: ImageArray = np.full((170, 170), 255, dtype=np.uint8)
+    cv2.putText(patch, "8", (50, 140), cv2.FONT_HERSHEY_SIMPLEX, 4.5, 0, 2)
+    readings: dict[int, tuple[int, float]] = dict(zip((3, 2, 4), originals, strict=True))
+
+    def reading(candidate: ImageArray, copies: int) -> tuple[int, float]:
+        """Distinguish normal-spacing results from independent compact-layout evidence."""
+        if candidate.shape == patch.shape:
+            return readings[copies]
+        return {2: compact_pair, 3: compact_triple}[copies]
+
+    monkeypatch.setattr(import_images, "recognize_repeated_digit", reading)
+    assert recognize_digit(patch) == expected
+
+
+def test_confident_recognition_avoids_extra_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the normal single-call path for clear digits."""
+    reader: Mock = Mock(return_value=(3, 1.0))
+    monkeypatch.setattr("sudoku.import_images.recognize_repeated_digit", reader)
+    patch: ImageArray = np.full((170, 170), 255, dtype=np.uint8)
+    assert recognize_digit(patch) == (3, False)
+    reader.assert_called_once_with(patch, 3)

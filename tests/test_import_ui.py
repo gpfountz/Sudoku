@@ -244,6 +244,46 @@ def test_clipboard_and_file_pass_identical_image_bytes(
     review.load_image.assert_called_once_with(data)
 
 
+@pytest.mark.parametrize("entry", ["clipboard", "file"])
+def test_thin_digits_reach_review_from_clipboard_and_file(
+    review: Any, monkeypatch: pytest.MonkeyPatch, entry: str
+) -> None:
+    """Recover the screenshot's missed 8s through both real image-loading and OCR paths."""
+    path: Path = Path(__file__).parent / "fixtures" / "import-thin-digits.png"
+    data: bytes = path.read_bytes()
+    if entry == "clipboard":
+        pasteboard: Any = AK.NSPasteboard.pasteboardWithUniqueName()
+        pasteboard.setData_forType_(
+            NSData.dataWithBytes_length_(data, len(data)), AK.NSPasteboardTypePNG
+        )
+        monkeypatch.setattr(
+            AK, "NSPasteboard", Mock(generalPasteboard=Mock(return_value=pasteboard))
+        )
+        review.readClipboard_(None)
+    else:
+        panel: Any = Mock()
+        panel.runModal.return_value = AK.NSModalResponseOK
+        panel.URL.return_value = NSURL.fileURLWithPath_(str(path))
+        monkeypatch.setattr(AK, "NSOpenPanel", Mock(openPanel=Mock(return_value=panel)))
+        review.chooseFile_(None)
+    finish_jobs(review)
+    # The fixture retains the screenshot's corner handles. Select the original
+    # board bounds explicitly, just as a user adjusts the four import corners.
+    height: int
+    width: int
+    height, width = review.image.shape[:2]
+    review.corners = ((0, 0), (width - 1, 0), (width - 1, height - 1), (0, height - 1))
+    review.readBoard_(None)
+    finish_jobs(review)
+    expected: str = (
+        "300914005105006000960000800013008400090432080002500360007000096000600708600257004"
+    )
+    assert review.values == list(map(int, expected))
+    assert not review.uncertain
+    assert review.validated is not None
+    assert review.controls["play"].isEnabled()
+
+
 @pytest.mark.parametrize("oversized", [False, True])
 def test_unreadable_or_oversized_file_keeps_current_review(
     review: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, oversized: bool
