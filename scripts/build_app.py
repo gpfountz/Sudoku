@@ -12,11 +12,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import UTC, datetime
 from importlib.resources import files
 from pathlib import Path
 
 from sudoku.build_paths import prepare_directory, verify_artifact_paths
 from sudoku.license_checks import verify_build_licenses, verify_packaged_licenses
+from sudoku.version import APP_VERSION
 
 ROOT: Path = Path(__file__).resolve().parents[1]
 MINIMUM_MACOS_VERSION: str = "27.0"
@@ -106,29 +108,61 @@ def remove_duplicate_catalog(bundle: Path) -> None:
     subprocess.run(["codesign", "--force", "--sign", "-", str(bundle)], check=True)
 
 
+def write_build_info(bundle: Path) -> None:
+    """Record the runtime and source identity inside the bundle before it is signed."""
+    commit: str = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    status: str = subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True)
+    information: dict[str, str | bool] = {
+        "app_version": APP_VERSION,
+        "python_version": sys.version.split()[0],
+        "python_implementation": sys.implementation.name,
+        "git_commit": commit,
+        "git_dirty": bool(status.strip()),
+        "built_at_utc": datetime.now(UTC).isoformat(),
+    }
+    destination: Path = bundle / "Contents/Resources/build-info.json"
+    destination.write_text(json.dumps(information, indent=2) + "\n", encoding="utf-8")
+
+
 def publish_build(staging: Path, output: Path) -> None:
-    """Replace output from trusted staging, restoring the previous app on publication failure."""
+    """Publish the app, archive, and matching metadata, restoring previous outputs on failure."""
     output = prepare_directory(output)
     verify_artifact_paths(output)
     destination: Path = output / "Sudoku.app"
     previous: Path = staging / "previous.app"
-    if destination.exists():
-        shutil.move(str(destination), previous)
-    try:
-        shutil.move(str(staging / "dist/Sudoku.app"), destination)
-        verify_bundle(destination)
-        # Copy on the output filesystem before an atomic rename. This supports
-        # other volumes and never follows an existing archive symlink.
-        with tempfile.TemporaryDirectory(prefix=".sudoku-archive-", dir=output) as temporary:
-            archive: Path = Path(temporary) / "Sudoku.zip"
-            shutil.copy2(staging / "Sudoku.zip", archive)
-            archive.replace(output / "Sudoku.zip")
-    except (OSError, subprocess.CalledProcessError):
+    sidecars: tuple[str, ...] = ("build-info.json", "Sudoku.zip")
+    replaced: list[str] = []
+    # Prepare files and backups on the output filesystem before changing any outputs.
+    with tempfile.TemporaryDirectory(prefix=".sudoku-archive-", dir=output) as temporary:
+        prepared: Path = Path(temporary)
+        shutil.copy2(staging / "Sudoku.zip", prepared / "Sudoku.zip")
+        shutil.copy2(
+            staging / "dist/Sudoku.app/Contents/Resources/build-info.json",
+            prepared / "build-info.json",
+        )
+        for name in sidecars:
+            if (output / name).exists():
+                shutil.copy2(output / name, prepared / (name + ".previous"))
         if destination.exists():
-            shutil.move(str(destination), staging / "failed.app")
-        if previous.exists():
-            shutil.move(str(previous), destination)
-        raise
+            shutil.move(str(destination), previous)
+        try:
+            shutil.move(str(staging / "dist/Sudoku.app"), destination)
+            verify_bundle(destination)
+            for name in sidecars:
+                (prepared / name).replace(output / name)
+                replaced.append(name)
+        except (OSError, subprocess.CalledProcessError):
+            for name in reversed(replaced):
+                backup: Path = prepared / (name + ".previous")
+                if backup.exists():
+                    backup.replace(output / name)
+                else:
+                    (output / name).unlink()
+            if destination.exists():
+                shutil.move(str(destination), staging / "failed.app")
+            if previous.exists():
+                shutil.move(str(previous), destination)
+            raise
 
 
 def main() -> None:
@@ -174,6 +208,7 @@ def main() -> None:
         shutil.copy2(launcher, executable)
         subprocess.run(["codesign", "--force", "--sign", "-", str(executable)], check=True)
         verify_launcher_sdk(executable, sdk)
+        write_build_info(bundle)
         remove_duplicate_catalog(bundle)
         verify_packaged_licenses(bundle)
         verify_bundle(bundle)

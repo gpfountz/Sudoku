@@ -4,12 +4,19 @@
 
 """Validate the release launcher's stated minimum macOS version."""
 
+import json
+import subprocess
+import sys
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 
-from scripts.build_app import main, publish_build, verify_launcher_sdk
+from scripts.build_app import main, publish_build, verify_launcher_sdk, write_build_info
+from sudoku.version import APP_VERSION
 
 
 @pytest.mark.parametrize(
@@ -60,6 +67,9 @@ def test_publish_build_preserves_outputs_on_archive_failure(
     bundle: Path = staging / "dist/Sudoku.app"
     bundle.mkdir(parents=True)
     (bundle / "version.txt").write_text("new app")
+    resources: Path = bundle / "Contents/Resources"
+    resources.mkdir(parents=True)
+    (resources / "build-info.json").write_text('{"python_version": "3.14.8"}\n')
     if not archive_failure:
         (staging / "Sudoku.zip").write_bytes(b"new archive")
     output: Path = tmp_path / "output"
@@ -67,6 +77,7 @@ def test_publish_build_preserves_outputs_on_archive_failure(
     previous.mkdir(parents=True)
     (previous / "version.txt").write_text("old app")
     (output / "Sudoku.zip").write_bytes(b"old archive")
+    (output / "build-info.json").write_text("old metadata")
     with patch("scripts.build_app.verify_bundle"):
         if archive_failure:
             with pytest.raises(FileNotFoundError):
@@ -79,4 +90,72 @@ def test_publish_build_preserves_outputs_on_archive_failure(
     assert (output / "Sudoku.zip").read_bytes() == (
         b"old archive" if archive_failure else b"new archive"
     )
+    assert (output / "build-info.json").read_text() == (
+        "old metadata" if archive_failure else '{"python_version": "3.14.8"}\n'
+    )
+    assert not list(output.glob(".sudoku-archive-*"))
+
+
+@pytest.mark.parametrize("dirty", [False, True])
+def test_build_info_records_actual_runtime_and_source(tmp_path: Path, dirty: bool) -> None:
+    """Keep exact runtime provenance, the shared app version, and uncommitted state in the app."""
+    resources: Path = tmp_path / "Sudoku.app/Contents/Resources"
+    resources.mkdir(parents=True)
+    commit: str = "a" * 40
+    with patch(
+        "scripts.build_app.subprocess.check_output",
+        side_effect=[commit + "\n", " M scripts/build_app.py\n" if dirty else ""],
+    ):
+        write_build_info(resources.parent.parent)
+    information: dict[str, Any] = json.loads((resources / "build-info.json").read_text())
+    assert information["app_version"] == APP_VERSION
+    assert information["python_version"] == sys.version.split()[0]
+    assert information["python_implementation"] == sys.implementation.name
+    assert information["git_commit"] == commit
+    assert information["git_dirty"] is dirty
+    timestamp: datetime = datetime.fromisoformat(information["built_at_utc"])
+    assert timestamp.tzinfo == UTC
+
+
+@pytest.mark.parametrize("existing", [False, True])
+@pytest.mark.parametrize("failure", ["verify", "archive"])
+def test_publication_failure_restores_matching_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, existing: bool, failure: str
+) -> None:
+    """Restore or remove sidecar metadata if a later output operation fails."""
+    staging: Path = tmp_path / "staging"
+    bundle: Path = staging / "dist/Sudoku.app"
+    resources: Path = bundle / "Contents/Resources"
+    resources.mkdir(parents=True)
+    (resources / "build-info.json").write_text("new metadata")
+    (staging / "Sudoku.zip").write_bytes(b"new archive")
+    output: Path = tmp_path / "output"
+    output.mkdir()
+    if existing:
+        (output / "Sudoku.app").mkdir()
+        (output / "Sudoku.app/old.txt").write_text("old app")
+        (output / "Sudoku.zip").write_bytes(b"old archive")
+        (output / "build-info.json").write_text("old metadata")
+    original_replace: Callable[[Path, Path], Path] = Path.replace
+
+    def replace_unless_archive(path: Path, target: Path) -> Path:
+        """Simulate an archive failure after the metadata replacement succeeds."""
+        if path.name == "Sudoku.zip":
+            raise OSError("Cannot replace archive")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", replace_unless_archive)
+    with patch("scripts.build_app.verify_bundle") as verify:
+        if failure == "verify":
+            verify.side_effect = subprocess.CalledProcessError(1, "codesign")
+        with pytest.raises((OSError, subprocess.CalledProcessError)):
+            publish_build(staging, output)
+    if existing:
+        assert (output / "Sudoku.app/old.txt").read_text() == "old app"
+        assert (output / "Sudoku.zip").read_bytes() == b"old archive"
+        assert (output / "build-info.json").read_text() == "old metadata"
+    else:
+        assert not (output / "Sudoku.app").exists()
+        assert not (output / "Sudoku.zip").exists()
+        assert not (output / "build-info.json").exists()
     assert not list(output.glob(".sudoku-archive-*"))

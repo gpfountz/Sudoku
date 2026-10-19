@@ -6,6 +6,7 @@
 
 import shutil
 import sys
+import sysconfig
 import tomllib
 from importlib import metadata
 from pathlib import Path
@@ -21,6 +22,7 @@ from sudoku.license_checks import (
     verify_build_licenses,
     verify_notice_files,
     verify_packaged_licenses,
+    verify_python_build,
 )
 
 
@@ -103,6 +105,106 @@ def test_dependency_version_change_requires_notice_review(monkeypatch: pytest.Mo
     monkeypatch.setattr(metadata, "version", lambda name: "999.0")
     with pytest.raises(ValueError, match="Review and refresh.*opencv-python-headless"):
         verify_build_licenses()
+
+
+@pytest.fixture
+def installed_python_notice(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Supply a Python installation whose notice matches the reviewed snapshot."""
+    notice: Path = tmp_path / "LICENSE.txt"
+    shutil.copy2(LICENSES / "third-party/Python--LICENSE.txt", notice)
+    monkeypatch.setattr(sysconfig, "get_path", lambda name: str(tmp_path))
+    return notice
+
+
+@pytest.mark.parametrize("patch_version", [6, 8, 10, 99])
+def test_accept_stable_python_patches(
+    installed_python_notice: Path, monkeypatch: pytest.MonkeyPatch, patch_version: int
+) -> None:
+    """Allow the baseline and later stable patches, including double-digit patch numbers."""
+    monkeypatch.setattr(sys, "version_info", (3, 14, patch_version, "final", 0))
+    verify_python_build("3.14.6")
+
+
+@pytest.mark.parametrize(
+    "version",
+    [
+        (3, 14, 5, "final", 0),
+        (3, 13, 20, "final", 0),
+        (3, 15, 0, "final", 0),
+        (3, 14, 9, "alpha", 1),
+        (3, 14, 9, "beta", 1),
+        (3, 14, 9, "candidate", 1),
+    ],
+)
+def test_reject_unsupported_python_versions(
+    monkeypatch: pytest.MonkeyPatch, version: tuple[int, int, int, str, int]
+) -> None:
+    """Reject older patches, other minor releases, and prereleases before packaging."""
+    monkeypatch.setattr(sys, "version_info", version)
+    with pytest.raises(ValueError, match="requires stable CPython"):
+        verify_python_build("3.14.6")
+
+
+def test_reject_other_python_implementations(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the packaging policy specific to the reviewed CPython runtime."""
+    monkeypatch.setattr(sys.implementation, "name", "pypy")
+    with pytest.raises(ValueError, match="requires stable CPython"):
+        verify_python_build("3.14.6")
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_changed_or_missing_installed_python_notice_blocks_build(
+    installed_python_notice: Path, monkeypatch: pytest.MonkeyPatch, missing: bool
+) -> None:
+    """Prevent a permitted patch from silently bundling an unreviewed Python notice."""
+    monkeypatch.setattr(sys, "version_info", (3, 14, 8, "final", 0))
+    if missing:
+        installed_python_notice.unlink()
+        with pytest.raises(FileNotFoundError):
+            verify_python_build("3.14.6")
+    else:
+        installed_python_notice.write_text("Changed upstream license")
+        with pytest.raises(ValueError, match="installed LICENSE.txt differs"):
+            verify_python_build("3.14.6")
+
+
+@pytest.mark.parametrize("change", ["none", "version", "library", "hash"])
+def test_python_patch_acceptance_preserves_dependency_guards(
+    installed_python_notice: Path, monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
+    """Continue checking dependency versions, native-library membership, and bytes after upgrade."""
+    directory: Path = installed_python_notice.parent
+    libraries: Path = directory / "cv2/.dylibs"
+    libraries.mkdir(parents=True)
+    (libraries / "native.dylib").write_bytes(b"" if change != "hash" else b"changed")
+    inventory: LicenseInventory = {
+        "versions": {"Python": "3.14.6", "opencv-python-headless": "5.0.0.93"},
+        "notices": [],
+        "bundled_libraries": [
+            {
+                "package": "opencv-python-headless",
+                "file": "native.dylib",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            }
+        ],
+    }
+    if change == "library":
+        (libraries / "extra.dylib").write_bytes(b"extra")
+    monkeypatch.setattr(sys, "version_info", (3, 14, 8, "final", 0))
+    monkeypatch.setattr("sudoku.license_checks.verify_notice_files", lambda: inventory)
+    monkeypatch.setattr(
+        metadata, "version", lambda name: "999" if change == "version" else "5.0.0.93"
+    )
+    monkeypatch.setattr(
+        metadata,
+        "distribution",
+        lambda name: metadata.PathDistribution(directory / "fake.dist-info"),
+    )
+    if change == "none":
+        verify_build_licenses()
+    else:
+        with pytest.raises(ValueError, match="Review"):
+            verify_build_licenses()
 
 
 def test_metadata_declares_gpl_and_license_resources() -> None:

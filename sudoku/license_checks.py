@@ -7,6 +7,7 @@
 import hashlib
 import json
 import sys
+import sysconfig
 from importlib import metadata
 from pathlib import Path
 from typing import TypedDict
@@ -58,11 +59,37 @@ def verify_notice_files(directory: Path = LICENSES) -> LicenseInventory:
     return inventory
 
 
+def verify_python_build(expected: str) -> None:
+    """Accept stable CPython patches from the baseline while requiring the reviewed notice."""
+    baseline: tuple[int, ...] = tuple(int(part) for part in expected.split("."))
+    if (
+        sys.implementation.name != "cpython"
+        or sys.version_info[:2] != baseline[:2]
+        or sys.version_info[:3] < baseline
+        or sys.version_info[3] != "final"
+    ):
+        raise ValueError(
+            f"Packaging requires stable CPython {baseline[0]}.{baseline[1]}.x >= {expected}; "
+            f"installed {sys.implementation.name} {sys.version.split()[0]}. "
+            "See docs/licensing.md."
+        )
+    installed_notice: Path = Path(sysconfig.get_path("stdlib")) / "LICENSE.txt"
+    reviewed_notice: Path = LICENSES / "third-party/Python--LICENSE.txt"
+    if installed_notice.read_bytes() != reviewed_notice.read_bytes():
+        raise ValueError(
+            "Review and refresh the license inventory for Python: installed LICENSE.txt "
+            "differs from the reviewed notice. See docs/licensing.md."
+        )
+
+
 def verify_build_licenses() -> None:
-    """Stop packaging when dependencies differ from the reviewed license inventory."""
+    """Require reviewed dependencies and notices, allowing compatible stable Python patches."""
     inventory: LicenseInventory = verify_notice_files()
     for name, expected in inventory["versions"].items():
-        actual: str = sys.version.split()[0] if name == "Python" else metadata.version(name)
+        if name == "Python":
+            verify_python_build(expected)
+            continue
+        actual: str = metadata.version(name)
         if actual != expected:
             raise ValueError(
                 f"Review and refresh the license inventory for {name}: "
@@ -98,4 +125,4 @@ def verify_packaged_licenses(bundle: Path) -> None:
 
 if __name__ == "__main__":
     verify_build_licenses()
-    print("License notices and reviewed dependency versions match the build environment.")
+    print("License notices, Python patch policy, and reviewed dependency versions verified.")

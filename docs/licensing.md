@@ -51,8 +51,20 @@ obligation has been fulfilled.
 The current inventory records CPython 3.14.6, PyObjC 12.2.2, NumPy 2.5.3,
 opencv-python-headless 5.0.0.93, py2app 0.28.10, and setuptools 84.0.0. It includes the wheel-supplied license
 texts, upstream PyObjC notices omitted from two wheels, and SHA-256 hashes of OpenCV's
-bundled native libraries. Source development supports the project's declared Python range;
-packaging currently requires the reviewed versions until their notices are refreshed.
+bundled native libraries. Source development supports the project's declared Python range.
+For local packaging, the recorded Python version is the minimum reviewed patch: stable
+CPython 3.14.6 and newer within 3.14 are accepted when the installed `lib/python3.14/LICENSE.txt`
+matches the reviewed notice byte for byte. Older patches, prereleases, other minor versions,
+and other implementations are rejected. All other inventoried versions remain exact requirements;
+notice checksums and native-library membership and hashes remain enforced.
+
+On October 19, 2026, the installed Homebrew CPython 3.14.8 (`3.14.8_2`) root `LICENSE` and
+standard-library `LICENSE.txt` both matched the recorded Python 3.14.6 notice exactly, with SHA-256
+`b0e25a78cffb43f4d92de8b61ccfa1f1f98ecbc22330b54b5251e7b6ba010231`.
+This confirms the preserved Python notice for that installation; it does not constitute a review
+of every separately licensed library linked by Python or of future patches. Build metadata in
+`Sudoku.app/Contents/Resources/build-info.json` and beside the ZIP records the actual Python version,
+application version, source commit, uncommitted-change status, and UTC timestamp.
 
 Before building:
 
@@ -60,7 +72,8 @@ Before building:
 .venv/bin/python -m sudoku.license_checks
 ```
 
-After changing dependencies or Python, review the actual distributions and native libraries,
+After changing dependencies, moving Python outside the accepted patch range, or encountering a
+changed installed Python notice, review the actual distributions and native libraries,
 collect their complete license texts without altering them, and update the versions, notice
 origins, and hashes in `sudoku/data/licenses/inventory.json`. Review the wheel contents rather
 than relying only on the package's top-level license classifier. Update this guide and the

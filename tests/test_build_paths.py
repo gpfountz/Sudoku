@@ -112,7 +112,7 @@ def test_root_sticky_ancestor_allows_owned_output(
     assert prepare_directory(shared / "release").is_dir()
 
 
-@pytest.mark.parametrize("name", ["Sudoku.app", "Sudoku.zip"])
+@pytest.mark.parametrize("name", ["Sudoku.app", "Sudoku.zip", "build-info.json"])
 def test_reject_artifact_symlinks(tmp_path: Path, name: str) -> None:
     """Prevent archive and application aliases, including dangling links, from being followed."""
     (tmp_path / name).symlink_to(tmp_path / "missing")
@@ -120,9 +120,10 @@ def test_reject_artifact_symlinks(tmp_path: Path, name: str) -> None:
         verify_artifact_paths(tmp_path)
 
 
-def test_reject_archive_directory(tmp_path: Path) -> None:
-    """Do not treat an existing ZIP directory as a container for a new archive."""
-    (tmp_path / "Sudoku.zip").mkdir()
+@pytest.mark.parametrize("name", ["Sudoku.zip", "build-info.json"])
+def test_reject_archive_directory(tmp_path: Path, name: str) -> None:
+    """Do not treat an existing sidecar directory as a container for a new artifact."""
+    (tmp_path / name).mkdir()
     with pytest.raises(ValueError, match="unsafe owner or file type"):
         verify_artifact_paths(tmp_path)
 

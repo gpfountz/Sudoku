@@ -120,8 +120,12 @@ def prepare_directory(directory: Path) -> Path:
 
 
 def verify_artifact_paths(directory: Path) -> None:
-    """Reject output aliases and wrong file types before replacing a bundle or archive."""
-    for name, is_directory in (("Sudoku.app", True), ("Sudoku.zip", False)):
+    """Reject output aliases and wrong file types before replacing build artifacts."""
+    for name, is_directory in (
+        ("Sudoku.app", True),
+        ("Sudoku.zip", False),
+        ("build-info.json", False),
+    ):
         path: Path = directory / name
         try:
             metadata: os.stat_result = path.lstat()

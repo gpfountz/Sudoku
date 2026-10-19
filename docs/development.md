@@ -23,28 +23,35 @@ without the GUI; image recognition uses native Apple Vision and Quartz alongside
 
 ### Packaging Python
 
-The app builder requires **CPython 3.14.6**, exactly, plus the pinned dependencies in
-`requirements-dev.txt`. Other supported Python versions can run the source, but packaging stops
-when the interpreter or dependencies differ from the reviewed license inventory.
-Homebrew's `python@3.14` can move to a newer patch version.
+The app builder accepts stable **CPython 3.14.6 or newer within 3.14**, plus the pinned dependencies
+in `requirements-dev.txt`. Older patches, prereleases, other minor versions, and other Python
+implementations are rejected. Every build compares the installed Python `LICENSE.txt` with the
+reviewed copy; dependency versions, checked-in notices, and native-library inventories and hashes
+remain checked. Other supported Python versions can run the source.
 
-For a fresh packaging checkout, install the macOS installer from the official
-[Python 3.14.6 release](https://www.python.org/downloads/release/python-3146/), then use its explicit
-interpreter when creating the environment:
+For a fresh packaging checkout, Homebrew's `python@3.14` supplies the interpreter:
 
 ```sh
-/Library/Frameworks/Python.framework/Versions/3.14/bin/python3.14 --version
-/Library/Frameworks/Python.framework/Versions/3.14/bin/python3.14 -m venv .venv
+brew install python@3.14
+python3.14 --version
+python3.14 -m venv .venv
 .venv/bin/python -m pip install -r requirements-dev.txt
 .venv/bin/python -m pip install -e .
 .venv/bin/python -m sudoku.license_checks
 ```
 
-Check that the first command reports `Python 3.14.6`; a later installer can replace that framework.
-Use a fresh virtual environment rather than changing the interpreter inside an existing one.
+Check that the interpreter reports a stable Python 3.14 patch of at least 3.14.6.
+Homebrew upgrades can advance that patch. Use a fresh virtual environment when recreating the setup.
 The license check is the final check of the actual installed packages and native libraries.
 If it fails, review the environment and [notice maintenance](licensing.md#dependency-and-notice-maintenance)
 before packaging. Do not update the inventory simply to bypass a failure.
+
+Each build includes `Contents/Resources/build-info.json` inside `Sudoku.app`, with an identical
+`build-info.json` beside `Sudoku.zip`. The metadata records the application version from
+`sudoku/version.py`, exact Python version and implementation, Git commit, whether tracked or
+untracked source changes are present (excluding ignored files), and an ISO 8601 UTC build timestamp.
+It is written before signing and archiving; it does not claim an uncommitted checkout matches the
+recorded commit. Git must be available and the build must run from a Git checkout.
 
 ## Setup and source launch
 

@@ -71,8 +71,9 @@ Source launches use your normal Sudoku saves by default. See the
 This project is published as source; no prebuilt app is provided. You can build your own
 standalone `Sudoku.app`, which includes Python and the puzzle catalog.
 
-Packaging requires exactly **CPython 3.14.6** and the dependencies in `requirements-dev.txt`,
-matching the reviewed license inventory. Homebrew's current Python 3.14 patch version may differ.
+Packaging requires stable **CPython 3.14.6 or newer within 3.14** and the pinned dependencies in
+`requirements-dev.txt`. Later 3.14 patches are accepted when their installed Python license text
+matches the reviewed copy; prereleases and other minor versions are rejected.
 Follow [packaging Python](docs/development.md#packaging-python) before creating the build environment,
 then build, verify, and install locally:
 
@@ -83,6 +84,9 @@ then build, verify, and install locally:
 
 The script installs `~/Applications/Sudoku.app` and saves `Sudoku.zip` in
 a new private `/private/tmp/sudoku-release.XXXXXX/` directory, printed on success.
+That directory also contains `build-info.json`, matching the copy inside
+`Sudoku.app/Contents/Resources/`. It records the exact Python version, application version,
+Git commit, whether the checkout has uncommitted changes, and the UTC build timestamp.
 Local builds are ad-hoc signed and are not notarized.
 Keep unpacked builds outside cloud-synced folders, and use the ZIP for transfers.
 See the [development guide](docs/development.md) for build-only options, custom output folders,
