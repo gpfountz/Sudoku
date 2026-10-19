@@ -6,7 +6,7 @@ Puzzles, daily games, and image recognition work locally, without a server or AP
 
 ## Why I built it
 
-I wanted a Sudoku app that works the way I like. Building my own also gave me a practical
+I wanted a Sudoku app that looks and operates like a native macOS application. Building my own also gave me a practical
 way to learn Python and explore using AI for app development: starting with an idea, turning it
 into a working feature, and testing and refining the result.
 
