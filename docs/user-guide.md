@@ -147,6 +147,12 @@ another attempt. Changing the difficulty updates its saved level when you press 
 Imports have a selected difficulty without a numeric catalog rating. Source images are discarded
 when the review closes.
 
+While playing an unfinished unmatched import, use the level dropdown above the board to choose
+another level. The choice saves immediately without opening a dialog or restarting the attempt
+or changing answers, notes, colors, undo/redo, or elapsed time. The new level is retained after
+quitting and used for future replays; earlier History records keep their recorded levels.
+Built-in puzzles, including matching imports, retain their catalog difficulty.
+
 Starting the imported game marks the currently displayed unfinished regular, daily, or imported
 attempt **Abandoned**. A completed attempt remains Completed. Cancelling, recognition errors,
 invalid clues, or failed saves leave the current attempt and its History outcome unchanged.

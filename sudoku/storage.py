@@ -255,7 +255,10 @@ class Store:
             self.imported.save(game)
             index: dict[str, Any] = self.players.read_index() or {}
             active: dict[str, Any] = index.get("active") or {}
-            if active.get("replay_id") != game.attempt_id:
+            if (
+                active.get("replay_id") != game.attempt_id
+                or active.get("level") != game.puzzle.level
+            ):
                 self.players.write_replay_index(game)
         else:
             self.players.save_game(game)

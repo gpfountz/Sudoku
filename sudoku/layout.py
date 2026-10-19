@@ -256,10 +256,18 @@ class AdaptiveLayout:
             c[key].setLineBreakMode_(AK.NSLineBreakByWordWrapping)
             c[key].cell().setWraps_(True)
             c[key].cell().setUsesSingleLineMode_(False)
-        labels: Any = stack([c["title"], c["subtitle"]], True, 0)
+        subtitle: Any = stack([c["import_level"], c["subtitle"]], False, 6)
+        subtitle.setAlignment_(AK.NSLayoutAttributeFirstBaseline)
+        c["import_level"].setContentHuggingPriority_forOrientation_(
+            AK.NSLayoutPriorityRequired, AK.NSLayoutConstraintOrientationHorizontal
+        )
+        c["import_level"].setContentCompressionResistancePriority_forOrientation_(
+            AK.NSLayoutPriorityRequired, AK.NSLayoutConstraintOrientationHorizontal
+        )
+        labels: Any = stack([c["title"], subtitle], True, 0)
         fixed(c["title"], "height", 32)
         self.constraints["subtitle_height"] = fixed(c["subtitle"], "height", 20)
-        for child in (c["title"], c["subtitle"]):
+        for child in (c["title"], subtitle):
             fill_width(child, labels)
         self.compact_menu: Any = AK.NSPopUpButton.alloc().initWithFrame_pullsDown_(
             AK.NSZeroRect, True

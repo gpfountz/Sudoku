@@ -364,10 +364,9 @@ class PlayerStore:
         from sudoku.imported import is_imported
 
         if is_imported(active["id"]):
-            game: Game = self.store.imported.load(active["id"], active.get("replay_id", ""))
-            if game.puzzle.level != active["level"]:
-                raise SaveError("Imported difficulty does not match the active pointer")
-            return game
+            # Imported levels are editable metadata. The saved definition is
+            # authoritative if a level change outlives a stale pointer file.
+            return self.store.imported.load(active["id"], active.get("replay_id", ""))
         try:
             puzzle: Puzzle | None = self.catalog[active["level"]].find(active["id"])
             if puzzle is None:

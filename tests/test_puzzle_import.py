@@ -15,9 +15,9 @@ from sudoku.catalog import Catalog
 from sudoku.engine import solve
 from sudoku.history import HistoryStore
 from sudoku.import_session import replace_attempt
-from sudoku.model import Game, Puzzle
+from sudoku.model import LEVELS, Game, Puzzle
 from sudoku.puzzle_import import ValidatedImport, parse_grid, validate_import
-from sudoku.storage import SaveError, Store
+from sudoku.storage import SaveError, Store, game_data
 
 ROWS: tuple[str, ...] = (
     "530070000",
@@ -112,6 +112,121 @@ def test_import_identity_progress_and_replay(
     with sqlite3.connect(tmp_path / "imported.sqlite3") as connection:
         assert connection.execute("SELECT count(*) FROM puzzles").fetchone()[0] == 1
         assert connection.execute("SELECT count(*) FROM attempts").fetchone()[0] == 3
+
+
+@pytest.mark.parametrize("level", LEVELS)
+def test_change_import_level_preserves_progress_and_history(
+    tmp_path: Path, isolated_catalog: Catalog, validated: ValidatedImport, level: str
+) -> None:
+    """Retain the same attempt, all progress, prior History, and the new level after relaunch."""
+    store: Store = Store(tmp_path)
+    store.load_game(isolated_catalog)
+    previous: Game = store.imported.start(validated, "Hard")
+    history: HistoryStore = HistoryStore(tmp_path / "history.sqlite3")
+    history.record_outcome(previous, "Restarted", "2026-10-19T18:00:00+00:00")
+    game: Game = store.start_replay(previous.puzzle.identifier)
+    empty: int = next(index for index, value in enumerate(game.values) if not value)
+    game.mark(empty, 5)
+    game.paint_color(empty)
+    game.set_value(empty, game.puzzle.solution[empty])
+    game.undo()
+    game.elapsed = 91
+    game.paused = True
+    game.viewed_hint_stages.add("a" * 64)
+    before: dict[str, object] = game_data(game)
+    puzzle: Puzzle = game.puzzle
+    store.imported.change_level(game, level)
+    assert game_data(game) == before
+    assert game.puzzle.level == level
+    assert game.puzzle.identifier == puzzle.identifier
+    assert game.puzzle.givens == puzzle.givens
+    assert game.puzzle.solution == puzzle.solution
+    assert game.puzzle.rating is None
+    restored: Game | None = Store(tmp_path).load_game(isolated_catalog)
+    assert restored is not None
+    assert restored.puzzle == game.puzzle
+    assert game_data(restored) == before
+    assert history.count() == 1
+    assert history.page(0)[0].level == "Hard"
+    replay: Game = store.start_replay(puzzle.identifier)
+    assert replay.puzzle.level == level
+    assert replay.attempt_id != game.attempt_id
+
+
+def test_failed_import_level_change_rolls_back_metadata_and_progress(
+    tmp_path: Path,
+    isolated_catalog: Catalog,
+    validated: ValidatedImport,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Roll back the level update if saving current progress fails in the same transaction."""
+    store: Store = Store(tmp_path)
+    store.load_game(isolated_catalog)
+    game: Game = store.imported.start(validated, "Hard")
+    puzzle: Puzzle = game.puzzle
+    monkeypatch.setattr(
+        store.imported, "write_attempt", Mock(side_effect=sqlite3.OperationalError("Disk full"))
+    )
+    with pytest.raises(SaveError, match="Disk full"):
+        store.imported.change_level(game, "Expert")
+    assert game.puzzle is puzzle
+    assert store.imported.load(puzzle.identifier, game.attempt_id).puzzle == puzzle
+
+
+def test_import_level_change_rejects_catalog_puzzles_and_invalid_levels(
+    tmp_path: Path, isolated_catalog: Catalog, validated: ValidatedImport
+) -> None:
+    """Keep catalog definitions fixed and reject unsupported imported difficulty labels."""
+    store: Store = Store(tmp_path)
+    store.load_game(isolated_catalog)
+    builtin: Game = store.start_game("Easy")
+    with pytest.raises(ValueError, match="imported puzzle"):
+        store.imported.change_level(builtin, "Expert")
+    game: Game = store.imported.start(validated, "Hard")
+    with pytest.raises(ValueError, match="difficulty"):
+        store.imported.change_level(game, "Unknown")
+    assert store.imported.find(game.puzzle.identifier) == game.puzzle
+
+
+def test_import_level_survives_failed_pointer_refresh(
+    tmp_path: Path,
+    isolated_catalog: Catalog,
+    validated: ValidatedImport,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Resume committed import metadata even when refreshing the cached pointer level fails."""
+    store: Store = Store(tmp_path)
+    store.load_game(isolated_catalog)
+    game: Game = store.imported.start(validated, "Hard")
+    store.activate_replay(game)
+    store.imported.change_level(game, "Expert")
+    assert store.players is not None
+    monkeypatch.setattr(
+        store.players, "write_replay_index", Mock(side_effect=SaveError("Disk full"))
+    )
+    with pytest.raises(SaveError, match="Disk full"):
+        store.save_game(game)
+    restored: Game | None = Store(tmp_path).load_game(isolated_catalog)
+    assert restored is not None
+    assert restored.puzzle.level == "Expert"
+    assert restored.attempt_id == game.attempt_id
+
+
+def test_save_import_refreshes_pointer_level(
+    tmp_path: Path, isolated_catalog: Catalog, validated: ValidatedImport
+) -> None:
+    """Keep the small active pointer consistent with a successfully relabeled import."""
+    store: Store = Store(tmp_path)
+    store.load_game(isolated_catalog)
+    game: Game = store.imported.start(validated, "Hard")
+    store.activate_replay(game)
+    store.imported.change_level(game, "Expert")
+    store.save_game(game)
+    assert store.players is not None
+    index: dict[str, object] | None = store.players.read_index()
+    assert index is not None
+    assert isinstance(index["active"], dict)
+    assert index["active"]["level"] == "Expert"
 
 
 @pytest.mark.parametrize("daily_date", [None, "2026-10-03"])

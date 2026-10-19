@@ -33,7 +33,8 @@ from sudoku.hints import hint_steps
 from sudoku.history import GameHistoryEntry, HistoryStore
 from sudoku.history_ui import HistoryWindow
 from sudoku.legal import COPYRIGHT_NOTICE, license_text, third_party_text
-from sudoku.model import Game, Preferences, Snapshot
+from sudoku.model import LEVELS, Game, Preferences, Snapshot
+from sudoku.puzzle_import import ValidatedImport
 from sudoku.storage import Store, game_data
 from sudoku.theme import DEFAULT_THEME, THEMES, WARM_PAPER_THEME, theme_for_name
 from sudoku.theme_names import THEME_NAMES
@@ -1099,6 +1100,88 @@ def test_new_game_dialog_themes_difficulty_and_buttons_without_starting_game(
         assert controller.game.snapshot() == before
     finally:
         alert.window().close()
+
+
+@pytest.mark.parametrize("appearance", ["Light", "Dark"])
+@pytest.mark.parametrize("size", [(960, 780), (400, 600)])
+@pytest.mark.parametrize("theme", ["Default", "Warm Paper", "High Contrast"])
+def test_import_level_click_keeps_progress_and_fits_header(
+    native_controller: Any,
+    tmp_path: Path,
+    isolated_catalog: Any,
+    unmatched_import: ValidatedImport,
+    appearance: str,
+    size: tuple[int, int],
+    theme: str,
+) -> None:
+    """Select a level from the real header dropdown with no modal or change to any board cell."""
+    controller: Any = native_controller
+    controller.store = Store(tmp_path)
+    controller.store.load_game(isolated_catalog)
+    controller.history = HistoryStore(tmp_path / "history.sqlite3")
+    controller.game = controller.store.imported.start(unmatched_import, "Hard")
+    controller.store.activate_replay(controller.game)
+    controller.regular_game = controller.game
+    controller.active_daily_date = None
+    controller.daily_games = {}
+    controller.current_hint = None
+    controller.hint_stage = 0
+    controller.save_problem = ""
+    controller.preferences.appearance = appearance
+    controller.preferences.theme = theme
+    controller.theme = theme_for_name(theme)
+    controller.apply_appearance()
+    controller.window.setContentSize_(size)
+    controller.refresh()
+    picker: Any = controller.controls["import_level"]
+    subtitle: Any = controller.controls["subtitle"]
+    assert isinstance(picker, ThemePopUpButton)
+    assert not picker.isHidden()
+    assert picker.titleOfSelectedItem() == "Hard"
+    assert picker.theme is controller.theme
+    assert AK.NSMaxX(picker.frame()) <= AK.NSMinX(subtitle.frame())
+    assert picker.frame().size.width > 0
+    assert picker.frame().size.height > 0
+    assert [item.title() for item in picker.itemArray()] == list(LEVELS)
+    before: dict[str, Any] = game_data(controller.game)
+    controller.alert = Mock()
+    controller.build_message_dialog = Mock()
+    if theme == "Default":
+        picker.selectItemWithTitle_("Expert")
+        picker.sendAction_to_(picker.action(), picker.target())
+    else:
+        picker.menuWillOpen_(picker.menu())
+        picker.itemWithTitle_("Expert").view().accessibilityPerformPress()
+    assert controller.game.puzzle.level == picker.titleOfSelectedItem() == "Expert"
+    controller.alert.assert_not_called()
+    controller.build_message_dialog.assert_not_called()
+    assert game_data(controller.game) == before
+    restored: Game | None = Store(tmp_path).load_game(isolated_catalog)
+    assert restored is not None
+    assert restored.puzzle.level == "Expert"
+    assert game_data(restored) == before
+
+
+@pytest.mark.parametrize("source", ["regular", "matched_import", "daily", "completed_import"])
+def test_header_level_is_read_only_for_catalog_and_completed_games(
+    native_controller: Any, source: str
+) -> None:
+    """Show the original level as ordinary subtitle text outside editable imported attempts."""
+    controller: Any = native_controller
+    controller.active_daily_date = "2026-10-19" if source == "daily" else None
+    controller.daily_games = {}
+    controller.store = Mock()
+    controller.current_hint = None
+    controller.hint_stage = 0
+    controller.save_problem = ""
+    if source == "completed_import":
+        controller.game.puzzle = replace(
+            controller.game.puzzle, identifier="IMP-000001", rating=None
+        )
+        controller.game.values = list(controller.game.puzzle.solution)
+    controller.refresh()
+    assert controller.controls["import_level"].isHidden()
+    assert controller.game.puzzle.level in controller.controls["subtitle"].stringValue()
 
 
 @pytest.mark.parametrize("name", ["Default", "Warm Paper", "High Contrast"])

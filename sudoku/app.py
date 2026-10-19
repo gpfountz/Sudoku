@@ -293,6 +293,18 @@ class AppController(NSObject):
         self.controls["title"].setFont_(
             AK.NSFont.systemFontOfSize_weight_(30, AK.NSFontWeightSemibold)
         )
+        level_picker: Any = ThemePopUpButton.alloc().initWithFrame_pullsDown_(
+            AK.NSMakeRect(0, 0, 110, 24), False
+        )
+        level_picker.addItemsWithTitles_(list(LEVELS))
+        level_picker.setControlSize_(AK.NSControlSizeSmall)
+        level_picker.setFont_(AK.NSFont.systemFontOfSize_(13))
+        level_picker.setTarget_(self)
+        level_picker.setAction_("changeImportedLevel:")
+        level_picker.setHidden_(True)
+        level_picker.setToolTip_("Choose this imported puzzle’s level")
+        level_picker.setAccessibilityLabel_("Imported puzzle level")
+        self.controls["import_level"] = level_picker
         self.board = SudokuBoard.alloc().initWithFrame_(AK.NSMakeRect(24, 110, 590, 590))
         self.board.controller = self
         content.addSubview_(self.board)
@@ -445,9 +457,14 @@ class AppController(NSObject):
         self.controls["palette_label"].setStringValue_(self.palette_status_text(self.game))
         for key in ("order", "mode"):
             self.controls[key].apply_theme(theme)
-        for control in self.controls.values():
-            if isinstance(control, AK.NSButton) and not isinstance(control, DigitButton):
+        for key, control in self.controls.items():
+            if (
+                key != "import_level"
+                and isinstance(control, AK.NSButton)
+                and not isinstance(control, DigitButton)
+            ):
                 apply_action_theme(control, theme)
+        self.controls["import_level"].apply_theme(theme)
         if self.adaptive_layout:
             apply_action_theme(self.adaptive_layout.compact_menu, theme)
         for digit in range(1, 10):
@@ -502,6 +519,10 @@ class AppController(NSObject):
         """Reflect current state in native controls without modifying the game."""
         game: Game = self.game
         filled: int = sum(bool(value) for value in game.values)
+        editable_level: bool = self.can_change_import_level()
+        level_picker: Any = self.controls["import_level"]
+        level_picker.setHidden_(not editable_level)
+        level_picker.selectItemWithTitle_(game.puzzle.level)
         if self.active_daily_date:
             daily_day: date = date.fromisoformat(self.active_daily_date)
             self.controls["title"].setStringValue_("Daily Game")
@@ -516,8 +537,9 @@ class AppController(NSObject):
                 if game.puzzle.rating is not None
                 else f"Imported · {game.puzzle.identifier}"
             )
+            level_prefix: str = "" if editable_level else f"{game.puzzle.level}  "
             self.controls["subtitle"].setStringValue_(
-                f"{game.puzzle.level}  ·  {rating_text}  ·  {filled}/81 filled"
+                f"{level_prefix}·  {rating_text}  ·  {filled}/81 filled"
             )
         self.controls["order"].setSelectedSegment_(
             0 if self.preferences.input_order == "Cell First" else 1
@@ -961,6 +983,35 @@ class AppController(NSObject):
         alert.addButtonWithTitle_("OK")
         self.apply_alert_theme(alert)
         return alert
+
+    @objc.python_method
+    def can_change_import_level(self) -> bool:
+        """Allow difficulty edits only for an unfinished import with its own puzzle identity."""
+        return (
+            self.active_daily_date is None
+            and is_imported(self.game.puzzle.identifier)
+            and not self.game.complete
+        )
+
+    def changeImportedLevel_(self, sender: Any) -> None:
+        """Save an inline difficulty selection without replacing the imported attempt."""
+        if not self.can_change_import_level():
+            return
+        level: str = str(sender.titleOfSelectedItem())
+        if level not in LEVELS or level == self.game.puzzle.level:
+            sender.selectItemWithTitle_(self.game.puzzle.level)
+            return
+        self.board.finish_gesture()
+        try:
+            self.store.imported.change_level(self.game, level)
+        except SaveError as error:
+            sender.selectItemWithTitle_(self.game.puzzle.level)
+            self.alert("Cannot change imported puzzle level", str(error))
+        else:
+            self.save()
+            self.refresh()
+        finally:
+            self.window.makeFirstResponder_(self.board)
 
     @objc.python_method
     def build_new_game_dialog(self) -> Any:

@@ -17,7 +17,72 @@ from sudoku.catalog import Catalog
 from sudoku.history import HistoryStore
 from sudoku.model import LEVELS, Game, Preferences, Puzzle
 from sudoku.puzzle_import import ValidatedImport, validate_import
-from sudoku.storage import SaveError, Store, game_from_data
+from sudoku.storage import SaveError, Store, game_data, game_from_data
+
+
+@pytest.mark.parametrize("level", ["Expert", "Hard", "Unknown"])
+def test_change_import_level_keeps_current_attempt(controller: Any, level: str) -> None:
+    """Save an inline choice without restarting play, opening a dialog, or ending History."""
+    assert controller.play_import(import_puzzle(controller), "Hard")
+    game: Game = controller.game
+    game.elapsed = 123
+    game.mark(next(index for index, value in enumerate(game.values) if not value), 5)
+    before: dict[str, Any] = game_data(game)
+    prior_count: int = controller.history.count()
+    picker: Mock = Mock()
+    picker.titleOfSelectedItem.return_value = level
+    controller.refresh = Mock()
+    controller.changeImportedLevel_(picker)
+    expected: str = "Expert" if level == "Expert" else "Hard"
+    assert controller.game is game is controller.regular_game
+    assert game.puzzle.level == expected
+    assert game_data(game) == before
+    assert controller.history.count() == prior_count
+    assert controller.store.imported.find(game.puzzle.identifier).level == expected
+    controller.alert.assert_not_called()
+    if level == "Expert":
+        controller.window.makeFirstResponder_.assert_called_with(controller.board)
+    else:
+        picker.selectItemWithTitle_.assert_called_once_with("Hard")
+        controller.refresh.assert_not_called()
+
+
+def test_change_import_level_handles_save_failure(
+    controller: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Leave the current level and attempt untouched when storage rejects the change."""
+    assert controller.play_import(import_puzzle(controller), "Hard")
+    puzzle: Puzzle = controller.game.puzzle
+    picker: Mock = Mock()
+    picker.titleOfSelectedItem.return_value = "Expert"
+    monkeypatch.setattr(
+        controller.store.imported, "change_level", Mock(side_effect=SaveError("Disk full"))
+    )
+    controller.changeImportedLevel_(picker)
+    assert controller.game.puzzle is puzzle
+    picker.selectItemWithTitle_.assert_called_once_with("Hard")
+    controller.alert.assert_called_once_with("Cannot change imported puzzle level", "Disk full")
+
+
+@pytest.mark.parametrize("source", ["regular", "matched_import", "daily", "completed_import"])
+def test_change_import_level_is_limited_to_unfinished_unmatched_imports(
+    controller: Any, source: str
+) -> None:
+    """Reject direct actions on built-in matches, normal puzzles, daily games, and ended imports."""
+    if source == "matched_import":
+        puzzle: Puzzle = controller.catalog["Hard"][0]
+        assert controller.play_import(validate_import(puzzle.givens), "Expert")
+    elif source == "daily":
+        controller.game = controller.store.start_daily_game(controller.current_day, "Medium")
+        controller.active_daily_date = controller.current_day
+    elif source == "completed_import":
+        assert controller.play_import(import_puzzle(controller), "Hard")
+        controller.game.values = list(controller.game.puzzle.solution)
+    puzzle = controller.game.puzzle
+    picker: Mock = Mock()
+    controller.changeImportedLevel_(picker)
+    picker.titleOfSelectedItem.assert_not_called()
+    assert controller.game.puzzle is puzzle
 
 
 @pytest.fixture

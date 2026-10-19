@@ -8,6 +8,7 @@ import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -168,6 +169,26 @@ class ImportedStore:
         """Save an existing import's current attempt, including a restarted attempt."""
         with self.transaction() as connection:
             self.write_attempt(connection, game, datetime.now(UTC).isoformat())
+
+    def change_level(self, game: Game, level: str) -> None:
+        """Save an import's chosen level and current progress before updating its live metadata."""
+        if level not in LEVELS or not is_imported(game.puzzle.identifier):
+            raise ValueError("Choose a difficulty for an imported puzzle")
+        puzzle: Puzzle = replace(game.puzzle, level=level)
+        with self.transaction() as connection:
+            cursor: sqlite3.Cursor = connection.execute(
+                "UPDATE puzzles SET level=? WHERE number=? AND givens=? AND solution=?",
+                (
+                    level,
+                    int(puzzle.identifier[4:]),
+                    "".join(map(str, puzzle.givens)),
+                    "".join(map(str, puzzle.solution)),
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise SaveError("Missing or changed imported puzzle; level was not saved")
+            self.write_attempt(connection, game, datetime.now(UTC).isoformat())
+        game.puzzle = puzzle
 
     def load(self, identifier: str, attempt_id: str) -> Game:
         """Restore only the exact attempt selected by the active session pointer."""
