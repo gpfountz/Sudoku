@@ -10,6 +10,7 @@ import AppKit as AK
 import objc
 from Foundation import NSDictionary, NSString
 
+from sudoku.compatibility import action_bezel_style
 from sudoku.theme import DEFAULT_THEME, Theme
 
 
@@ -23,7 +24,7 @@ def button_title(button: Any, color: Any) -> Any:
 
 def apply_action_theme(button: Any, theme: Theme) -> None:
     """Theme native action text and use opaque controls for High Contrast."""
-    button.setBezelStyle_(AK.NSBezelStyleRounded if theme.high_contrast else AK.NSBezelStyleGlass)
+    button.setBezelStyle_(action_bezel_style(theme.high_contrast))
     button.setBezelColor_(theme.controls.background if theme.high_contrast else None)
     button.setAttributedTitle_(button_title(button, theme.text))
 
@@ -281,7 +282,7 @@ class ThemeFocusOutline(AK.NSView):
 
 
 class GlassChoiceControl(AK.NSStackView):
-    """Present one-of-many choices as a compact row of native glass buttons."""
+    """Present one-of-many choices as a compact row of adaptive native buttons."""
 
     choice_buttons: list[Any]
     choice_titles: list[tuple[Any, Any]]
@@ -293,7 +294,7 @@ class GlassChoiceControl(AK.NSStackView):
 
     @objc.python_method
     def configure(self, labels: list[str], target: Any, action: str) -> None:
-        """Build equally sized glass choices that forward one selection action."""
+        """Build equally sized native choices that forward one selection action."""
         self.callback_target = target
         self.callback_action = action
         self.choice_buttons = []
@@ -305,7 +306,7 @@ class GlassChoiceControl(AK.NSStackView):
         for index, title in enumerate(labels):
             button: Any = AK.NSButton.buttonWithTitle_target_action_(title, self, "segmentPressed:")
             button.setTag_(index)
-            button.setBezelStyle_(AK.NSBezelStyleGlass)
+            button.setBezelStyle_(action_bezel_style())
             button.setButtonType_(AK.NSButtonTypePushOnPushOff)
             button.setFont_(font)
             normal_title: Any = button_title(button, self.theme.text)
@@ -323,9 +324,7 @@ class GlassChoiceControl(AK.NSStackView):
         self.selected_bezel_color = theme.accent
         self.choice_titles = []
         for button in self.choice_buttons:
-            button.setBezelStyle_(
-                AK.NSBezelStyleRounded if theme.high_contrast else AK.NSBezelStyleGlass
-            )
+            button.setBezelStyle_(action_bezel_style(theme.high_contrast))
             self.choice_titles.append(
                 (
                     button_title(button, theme.text),
@@ -335,7 +334,7 @@ class GlassChoiceControl(AK.NSStackView):
         self.setSelectedSegment_(self.selected_index)
 
     def setSelectedSegment_(self, index: int) -> None:
-        """Keep exactly one glass button visibly selected."""
+        """Keep exactly one native button visibly selected."""
         self.selected_index = index
         for button_index, button in enumerate(self.choice_buttons):
             button.setBezelColor_(
@@ -357,7 +356,7 @@ class GlassChoiceControl(AK.NSStackView):
         return self.selected_index
 
     def setSelectedSegmentBezelColor_(self, color: Any) -> None:
-        """Apply the theme accent to the selected glass choice, including later clicks."""
+        """Apply the theme accent to the selected choice, including later clicks."""
         self.selected_bezel_color = color
         self.setSelectedSegment_(self.selected_index)
 

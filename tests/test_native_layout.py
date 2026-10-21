@@ -13,12 +13,14 @@ from typing import Any
 from unittest.mock import Mock
 
 import AppKit as AK
+import objc
 import pytest
 from Foundation import NSRunLoop, NSTimer
 
 from scripts.preview_hint_links import preview_game, preview_hint
 from sudoku.app import AppController
 from sudoku.board import CandidateLayout, SudokuBoard, candidate_layout
+from sudoku.compatibility import action_bezel_style
 from sudoku.context_menu import CellContextMenu
 from sudoku.controls import (
     GlassChoiceControl,
@@ -207,25 +209,32 @@ def test_history_rows_headers_and_replay_follow_every_theme(
 
 
 @pytest.fixture
-def native_controller(game: Game, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
-    """Build real controls without startup, timers, disk writes, or a visible window."""
-    AK.NSApplication.sharedApplication()
-    monkeypatch.setattr(AK, "NSWindow", LayoutPreviewWindow)
-    controller: Any = AppController.alloc().init()
-    controller.game = game
-    controller.preferences = Preferences()
-    controller.controls = {}
-    controller.settings_window = None
-    controller.hint_focus = set()
-    controller.hint_removals = set()
-    controller.hint_candidates = set()
-    controller.hint_placements = set()
-    controller.hint_links = ()
-    controller.build_window()
-    yield controller
-    controller.window.setDelegate_(None)
-    controller.window.close()
-    controller.board.controller = None
+def native_controller(
+    game: Game, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> Iterator[Any]:
+    """Exercise native and older-OS controls without startup or player-data writes."""
+    if getattr(request, "param", False):
+        monkeypatch.setattr("sudoku.compatibility.supports_glass_buttons", lambda: False)
+    with objc.autorelease_pool():
+        AK.NSApplication.sharedApplication()
+        monkeypatch.setattr(AK, "NSWindow", LayoutPreviewWindow)
+        controller: Any = AppController.alloc().init()
+        controller.game = game
+        controller.preferences = Preferences()
+        controller.controls = {}
+        controller.settings_window = None
+        controller.hint_focus = set()
+        controller.hint_removals = set()
+        controller.hint_candidates = set()
+        controller.hint_placements = set()
+        controller.hint_links = ()
+        controller.build_window()
+        try:
+            yield controller
+        finally:
+            controller.window.setDelegate_(None)
+            controller.window.close()
+            controller.board.controller = None
 
 
 @pytest.mark.parametrize("window_kind", ("history", "import"))
@@ -456,6 +465,7 @@ def test_theme_setting_fits_and_recolors_window(native_controller: Any) -> None:
 
 
 @pytest.mark.parametrize("name", THEME_NAMES[1:])
+@pytest.mark.parametrize("native_controller", [False, True], indirect=True)
 def test_named_themes_reach_settings_menus_dialogs_and_choice_text(
     native_controller: Any, name: str
 ) -> None:
@@ -486,9 +496,7 @@ def test_named_themes_reach_settings_menus_dialogs_and_choice_text(
                     )
                     assert text.isEqual_(expected)
                     assert button.target() == choices and button.action() == "segmentPressed:"
-                    assert button.bezelStyle() == (
-                        AK.NSBezelStyleRounded if theme.high_contrast else AK.NSBezelStyleGlass
-                    )
+                    assert button.bezelStyle() == action_bezel_style(theme.high_contrast)
         assert controller.controls["digit1"].theme is theme
         for key in ("appearance", "theme", "error_check", "daily_minimum", "daily_maximum"):
             popup: Any = controller.settings_controls[key]
@@ -509,7 +517,7 @@ def test_named_themes_reach_settings_menus_dialogs_and_choice_text(
         assert menu.itemWithTitle_("Candidate").submenu().itemAtIndex_(0).view().theme is theme
         controller.apply_theme(DEFAULT_THEME)
         assert all(
-            button.bezelStyle() == AK.NSBezelStyleGlass
+            button.bezelStyle() == action_bezel_style()
             for button in controller.controls["mode"].choice_buttons
         )
         assert game_data(controller.game) == before
@@ -778,9 +786,11 @@ def test_sparse_candidates_and_hint_marks_keep_their_fixed_positions(
     assert game_data(controller.game) == before
 
 
-def test_liquid_glass_covers_actions_and_mode_controls(native_controller: Any) -> None:
-    """Keep native glass behind actions and entry modes while leaving digits distinct."""
+@pytest.mark.parametrize("native_controller", [False, True], indirect=True)
+def test_supported_styles_cover_actions_and_mode_controls(native_controller: Any) -> None:
+    """Use supported styles for actions, entry modes, and the compact menu."""
     controller: Any = native_controller
+    expected_style: int = action_bezel_style()
     for key in (
         "new",
         "daily",
@@ -798,12 +808,12 @@ def test_liquid_glass_covers_actions_and_mode_controls(native_controller: Any) -
         "another_hint",
         "reveal",
     ):
-        assert controller.controls[key].bezelStyle() == AK.NSBezelStyleGlass
+        assert controller.controls[key].bezelStyle() == expected_style
     for key in ("order", "mode"):
         choices: Any = controller.controls[key]
         assert isinstance(choices, GlassChoiceControl)
         assert len(choices.choice_buttons) == (2 if key == "order" else 3)
-        assert all(button.bezelStyle() == AK.NSBezelStyleGlass for button in choices.choice_buttons)
+        assert all(button.bezelStyle() == expected_style for button in choices.choice_buttons)
         assert all(contains(choices, button) for button in choices.choice_buttons)
         choices.setSelectedSegment_(0)
         assert (
@@ -815,11 +825,11 @@ def test_liquid_glass_covers_actions_and_mode_controls(native_controller: Any) -
         assert all(not button.isEnabled() for button in choices.choice_buttons)
         choices.setEnabled_(True)
     compact_menu: Any = controller.adaptive_layout.compact_menu
-    assert compact_menu.bezelStyle() == AK.NSBezelStyleGlass
+    assert compact_menu.bezelStyle() == expected_style
     assert compact_menu.frame().size.width == compact_menu.frame().size.height == 40
     assert compact_menu.intrinsicContentSize().height <= compact_menu.frame().size.height
     assert all(
-        controller.controls[f"digit{digit}"].bezelStyle() != AK.NSBezelStyleGlass
+        controller.controls[f"digit{digit}"].bezelStyle() != getattr(AK, "NSBezelStyleGlass", -1)
         for digit in range(1, 10)
     )
 
@@ -1288,6 +1298,7 @@ def test_cancel_first_dialog_keeps_readable_text_and_native_actions(
         alert.window().close()
 
 
+@pytest.mark.parametrize("native_controller", [False, True], indirect=True)
 def test_glass_choices_forward_clicks_without_editing_board(native_controller: Any) -> None:
     """Glass selection buttons retain the existing mode actions and puzzle state."""
     controller: Any = native_controller
@@ -1303,6 +1314,7 @@ def test_glass_choices_forward_clicks_without_editing_board(native_controller: A
     assert controller.game.snapshot() == before
 
 
+@pytest.mark.parametrize("native_controller", [False, True], indirect=True)
 def test_glass_choices_refresh_with_real_game_state(native_controller: Any) -> None:
     """Opening a game can select and enable the new choice rows without error."""
     controller: Any = native_controller
@@ -1318,6 +1330,7 @@ def test_glass_choices_refresh_with_real_game_state(native_controller: Any) -> N
 
 
 @pytest.mark.parametrize("imported", [False, True])
+@pytest.mark.parametrize("native_controller", [False, True], indirect=True)
 def test_pause_button_can_resume_game(native_controller: Any, imported: bool) -> None:
     """Pause and resume regular and imported games through the actual native button."""
     controller: Any = native_controller
@@ -1352,6 +1365,7 @@ def test_pause_button_can_resume_game(native_controller: Any, imported: bool) ->
     assert controller.save.call_count == 2
 
 
+@pytest.mark.parametrize("native_controller", [False, True], indirect=True)
 def test_pause_button_disabled_for_completed_game(native_controller: Any) -> None:
     """Keep the pause action unavailable once all answers match the solution."""
     controller: Any = native_controller
@@ -2164,6 +2178,7 @@ def test_new_arrangement_starts_at_top_of_controls(native_controller: Any) -> No
     )
 
 
+@pytest.mark.parametrize("native_controller", [False, True], indirect=True)
 def test_vertical_menu_preserves_entry_controls(native_controller: Any) -> None:
     """Keep entry controls visible while other actions use the compact menu."""
     c: Any = native_controller

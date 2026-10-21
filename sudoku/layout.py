@@ -9,6 +9,8 @@ from typing import Any
 
 import AppKit as AK
 
+from sudoku.compatibility import action_bezel_style
+
 MINIMUM_CONTENT_SIZE: tuple[float, float] = (400, 600)
 MINIMUM_BOARD: float = 288
 PANEL_WIDTH: float = 260
@@ -272,7 +274,7 @@ class AdaptiveLayout:
         self.compact_menu: Any = AK.NSPopUpButton.alloc().initWithFrame_pullsDown_(
             AK.NSZeroRect, True
         )
-        self.compact_menu.setBezelStyle_(AK.NSBezelStyleGlass)
+        self.compact_menu.setBezelStyle_(action_bezel_style())
         self.compact_menu.setAccessibilityLabel_("Game actions")
         self.compact_menu.setFont_(AK.NSFont.systemFontOfSize_(14))
         self.compact_menu.cell().setArrowPosition_(AK.NSPopUpNoArrow)

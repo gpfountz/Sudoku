@@ -19,6 +19,7 @@ from PyObjCTools import AppHelper
 
 from sudoku.board import SudokuBoard
 from sudoku.catalog import Catalog, load_catalog
+from sudoku.compatibility import action_bezel_style
 from sudoku.controls import (
     DigitButton,
     GlassChoiceControl,
@@ -173,9 +174,9 @@ class AppController(NSObject):
 
     @objc.python_method
     def button(self, title: str, action: str, parent: Any, key: str | None = None) -> Any:
-        """Create a native glass action button without changing its action."""
+        """Create a supported native action button without changing its action."""
         button: Any = AK.NSButton.buttonWithTitle_target_action_(title, self, action)
-        button.setBezelStyle_(AK.NSBezelStyleGlass)
+        button.setBezelStyle_(action_bezel_style())
         parent.addSubview_(button)
         if key:
             self.controls[key] = button
