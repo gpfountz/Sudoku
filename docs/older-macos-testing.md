@@ -218,10 +218,8 @@ were not provided. Both tested imports showed two cells requiring review:
 
 The maintainer reported that the same clipboard import on the M4 required no
 review. The source cell for the top-right 3 visibly includes a "MENU" overlay;
-its role in the review decision has not been established. The displayed digits
-appear to match the visible source, but the original source images and actual
-cell confidence traces are needed to explain the remaining flags. No thresholds
-or review decisions have been relaxed based on these screenshots.
+its role in the review decision has not been established. No thresholds or review
+decisions have been relaxed based on these screenshots.
 
 The game screenshot also showed an ellipsis in Candidates. A follow-up lets
 choice rows with native bezel margins allocate width in proportion to button
@@ -229,6 +227,45 @@ content, giving longer labels more room. Zero-margin controls retain their
 existing equal-width layout. Local title-area, border, layout, selection-action,
 and High Contrast checks passed **42 tests in 3.86 seconds**; Ruff and Mypy also
 passed. The full suite was not repeated for this title-allocation follow-up.
+
+### Original-image investigation
+
+The maintainer supplied the original `Untitled 2.jpg`. Local checks used its
+detected board and compared every clue and blank against the visible source.
+Both the normal and experimental readers preserved all 81 values with Vision
+revisions 2 and 3 on the M4. Their review counts were:
+
+| M4 algorithm | Normal reader | Fast-first experiment |
+| --- | ---: | ---: |
+| Vision revision 2 | 34 | 3 |
+| Vision revision 3 | 0 | 0 |
+
+The revision-2 experiment flagged the reported top-right 3 and bottom-right 5,
+plus the 1 at row 8, column 8. It accepted the 9 at row 2, column 5. This provides
+a local reproduction of low confidence in the actual source digits, but it does
+not emulate the Intel machine or explain its separate clipboard pixels.
+Single-cell traces returned confidence about 0.30 for the 3 and 0.50 for the 5,
+despite correct values. Compact spacing, different text layouts, image scaling,
+and retaining grayscale source edges did not reliably clear both flags. These
+temporary experiments have not changed app recognition behavior.
+
+Three lossless 100-by-100 cell fixtures retain the original board-warp pixels
+for the reported 3, 9, and 5. Native regression checks require their exact digits
+with both readers, and retain strict no-review expectations on the modern
+baseline. The diagnostic can now trace these same source cells on either Mac:
+
+```sh
+.venv/bin/python -m scripts.diagnose_ocr --fixture source-review --fast-first
+RUN_NATIVE_LAYOUT_TESTS=1 .venv/bin/python -m pytest -q tests/test_import_images.py -k source_review
+```
+
+The two Intel review flags remain unresolved; confirming them manually remains
+necessary with the tested preview. The normal application's OCR is unchanged.
+Local validation passed all **49 import-image and OCR-experiment tests in 8.52
+seconds**, including the six new native source-cell cases. Ruff lint and
+formatting and Mypy also passed. The new diagnostic was exercised with all three
+supported local revisions; the full desktop suite was not repeated for this
+fixture and diagnostic addition.
 
 ## Local preview on macOS 27
 

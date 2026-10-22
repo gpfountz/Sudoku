@@ -258,6 +258,28 @@ def test_bottom_eight_from_colored_screenshot(modern_vision_baseline: bool) -> N
 
 
 @pytest.mark.skipif(os.environ.get("RUN_NATIVE_LAYOUT_TESTS") != "1", reason="Local Vision runtime")
+@pytest.mark.parametrize(("name", "expected"), [("three", 3), ("nine", 9), ("five", 5)])
+@pytest.mark.parametrize("fast_first", [False, True])
+def test_source_review_cells_preserve_digits(
+    name: str, expected: int, fast_first: bool, modern_vision_baseline: bool
+) -> None:
+    """Read the actual Sequoia review cells with normal and experimental recognition."""
+    from scripts.ocr_experiment import experimental_fast_ocr
+
+    path: Path = Path(__file__).parent / "fixtures" / f"import-review-{name}.png"
+    cell: ImageArray = decode_image(read_image_file(path))
+    glyph: ImageArray | None = digit_patch(cell)
+    assert glyph is not None
+    with experimental_fast_ocr(fast_first):
+        value: int
+        needs_review: bool
+        value, needs_review = recognize_digit(glyph)
+    assert value == expected
+    if modern_vision_baseline:
+        assert not needs_review
+
+
+@pytest.mark.skipif(os.environ.get("RUN_NATIVE_LAYOUT_TESTS") != "1", reason="Local Vision runtime")
 @pytest.mark.parametrize("size", [None, 320, 480])
 def test_thin_digits_from_import_screenshot(size: int | None, modern_vision_baseline: bool) -> None:
     """Read every clue and blank, including four thin 8s and four 3s, from a real import."""

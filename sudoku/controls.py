@@ -313,7 +313,7 @@ class GlassChoiceControl(AK.NSStackView):
 
     @objc.python_method
     def configure(self, labels: list[str], target: Any, action: str) -> None:
-        """Build equally sized native choices that forward one selection action."""
+        """Build native choices that forward one selection action."""
         self.callback_target = target
         self.callback_action = action
         self.choice_buttons = []

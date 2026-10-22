@@ -86,6 +86,18 @@ def trace_digit(glyph: ImageArray) -> dict[str, Any]:
 def fixture_glyphs(fixture: str, cells: list[int]) -> list[tuple[str, ImageArray | None]]:
     """Prepare the same fixture pixels used by the native recognition regression tests."""
     directory: Path = ROOT / "tests/fixtures"
+    if fixture == "source-review":
+        return [
+            (
+                cell_name(index),
+                import_images.digit_patch(
+                    import_images.decode_image(
+                        import_images.read_image_file(directory / f"import-review-{name}.png")
+                    )
+                ),
+            )
+            for index, name in ((8, "three"), (13, "nine"), (80, "five"))
+        ]
     if fixture == "bottom-eight":
         glyph: ImageArray | None = cv2.imread(
             str(directory / "import-bottom-eight.png"), cv2.IMREAD_GRAYSCALE
@@ -120,10 +132,16 @@ def main() -> None:
     """Print a small JSON diagnostic suitable for comparing OS-supplied OCR engines."""
     parser: argparse.ArgumentParser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--fixture", choices=("bottom-eight", "thin-digits"), default="bottom-eight"
+        "--fixture",
+        choices=("bottom-eight", "thin-digits", "source-review"),
+        default="bottom-eight",
     )
     parser.add_argument(
-        "--cells", type=int, nargs="+", default=[3, 5, 8], help="Zero-based cell indices"
+        "--cells",
+        type=int,
+        nargs="+",
+        default=[3, 5, 8],
+        help="Zero-based cell indices for the thin-digits fixture",
     )
     parser.add_argument(
         "--compare-revisions",
