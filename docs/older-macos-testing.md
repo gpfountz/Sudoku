@@ -33,24 +33,25 @@ and 9 failed in 962.59 seconds**. The failures were:
 
 - Four OCR confidence assertions: the expected digits were recognized, but some
   required review rather than receiving the expected high confidence.
-- Two image-import UI checks whose background jobs exceeded the test's 15-second
-  wait. Their eventual result and duration have not yet been established.
+- Two image-import UI checks whose background jobs exceeded the test's original
+  15-second wait. Their successful follow-up and timings are recorded below.
 - One synthetic mouse-selection check for the themed Appearance dropdown.
   The maintainer confirmed that selecting Dark manually with the mouse works.
 - Two active-digit menu badge checks: a hardcoded 24-point custom row enlarged
   Sequoia's 22-point native row by two points.
 
-The follow-up at `199578f` measures the native menu row before inserting the badge, retaining
-the modern row size on macOS 27. A native regression model reproduces the shorter
-row. The synthetic dropdown test now waits for the menu row to appear and posts
-a hover followed by clicks using current event timestamps. The Sequoia rerun
+The follow-up at `199578f` measures the native menu row before inserting the
+badge, retaining the modern row size on macOS 27. A native regression model
+reproduces the shorter row. The synthetic dropdown test waits for the menu row
+to appear and posts a hover followed by clicks using current event timestamps. The Sequoia rerun
 reported **19 passed and 1 failed in 8.13 seconds**: the badge and other menu
 checks pass, but synthetic mouse selection still fails. The reported menu row
 was visible and had positive dimensions; manual mouse selection works.
 
-The next test adjustment positions the actual pointer over the target row and
+The adjustment at `317010a` positions the actual pointer over the target row and
 allows a tracking-loop iteration between hover and click, then restores the
-pointer. Whether that resolves older AppKit tracking still needs a Sequoia rerun.
+pointer. The Sequoia rerun passed both keyboard and mouse selection:
+**2 passed, 416 deselected in 4.34 seconds**.
 
 The Intel OCR traces use the same Python and package versions and Vision request
 revision 3 as the M4. For the bottom 8, only the compact patches were recognized,
@@ -69,8 +70,27 @@ flagged clue using its digit button, verify Play stays disabled until all flags
 are cleared, and preserve every recognized value. Separate decision tests replay
 the reported 0.30 and 0.50 confidence patterns. Only the two real image-import
 integration cases receive a 180-second wait per OCR phase, accommodating the
-measured Intel timings; other background-job waits remain 15 seconds. The full
-import duration and remaining manual visual checks still need Intel validation.
+measured Intel timings; other background-job waits remain 15 seconds.
+
+The maintainer's targeted OCR and review run at `317010a` passed on the Intel
+Sequoia MacBook: **26 passed, 35 deselected in 514.68 seconds**. Reported timings:
+
+| Case | Seconds |
+| --- | ---: |
+| Clipboard image-import integration | 161.40 |
+| File image-import integration | 138.56 |
+| Original-size thin-digit board OCR | 70.82 |
+| 480-pixel thin-digit board OCR | 69.95 |
+| 320-pixel thin-digit board OCR | 67.16 |
+| Bottom 8 recognition | 2.88 |
+
+Each import integration case includes loading the image, completing any automatic
+recognition, explicitly selecting the original board bounds, reading that board,
+and confirming all flagged clues. Its total is not a single OCR pass. These runs,
+together with the earlier passing menu-badge rerun, cover all nine original
+failures. The full suite has not been rerun at this revision. Remaining manual
+visual and functional checks are listed below; Sonoma and older-system standalone
+packaging remain unverified.
 
 These graphics diagnostics were also reported during launch:
 
