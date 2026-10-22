@@ -425,6 +425,61 @@ Both real clipboard and file import integration cases also passed with automatic
 Intel Sequoia policy selection simulated on the M4 (**2 passed in 3.20 seconds**).
 Ruff lint/formatting and Mypy passed.
 
+The maintainer confirmed automatic selection on the Intel Sequoia Mac at
+`7ec9359` (1.1.13): the diagnostic reported `fast-first` and `automatic` without
+an override. Its three source-cell results were:
+
+| Cell | Digit | Review needed | Seconds |
+| --- | ---: | --- | ---: |
+| Row 1, column 9 | 3 | Yes | 2.3006 |
+| Row 2, column 5 | 9 | No | 0.6258 |
+| Row 9, column 9 | 5 | No | 3.1436 |
+
+The 3 remained at confidence 0.30 across all three repeated layouts. The 5
+cleared review after two agreeing compact readings at confidence 1.00. These
+results match the prior forced-preview decisions. The maintainer also reported
+that both clipboard and file imports worked, with a couple of unreadable digits
+remaining; exact counts, values, and whole-board scan timings were not supplied.
+GitHub CI passed for `7ec9359`.
+
+### Full Intel regression with automatic OCR
+
+The maintainer's full desktop-enabled run at `7ec9359` reported **1,103 passed
+and one failed in 749.60 seconds (12 minutes 29 seconds)**. All OCR and import
+cases passed. The only failure was the first synthetic mouse dropdown case,
+`test_themed_dropdown_keeps_native_menu_selection[mouse0]`. Its pointer and hit
+target checks passed, but the app was inactive, Settings was not key, and the
+row was not highlighted when the events were posted.
+
+The entire run was shorter than the preceding 1,216.91-second run, and the same
+clipboard/file integration cases fell from 139.88/139.65 seconds to
+38.23/36.86 seconds. These are observed test-run timings, not a controlled
+benchmark of one OCR scan; each integration case includes multiple OCR phases.
+
+The dropdown test now explicitly activates the app and waits for both active-app
+and key-Settings state before opening the native menu. Normal AppKit events are
+dispatched during that bounded wait. Two of its four keyboard/mouse cases first
+hide and restore the test process without activation, verifying acquisition from
+an inactive state. Input queue isolation, actual menu-event dispatch, cursor
+restoration, and the exact one-save assertion remain in place. Application code
+and OCR policy are unchanged by this repair.
+
+The initial focused M4 check passed all four cases in 2.79 seconds; 40 repeated
+native/rounded cases passed in 22.49 seconds. A controlled local comparison
+omitting activation also passed 40 cases, so the Intel failure has not been
+reproduced locally and focus is a diagnostic lead rather than a proven cause.
+The repair makes that input precondition explicit; Intel validation remains
+necessary. The full M4 native-layout file passed **442 tests in 67.25 seconds**;
+Ruff lint/formatting, Mypy, and the diff whitespace check also passed. Failures
+now retain the active/key state immediately before opening the menu as well as
+the state during mouse tracking. Rerun the native-layout file after pulling this test repair rather
+than repeating the successful OCR cases:
+
+```sh
+git pull --ff-only
+RUN_NATIVE_LAYOUT_TESTS=1 .venv/bin/python -m pytest -q tests/test_native_layout.py --tb=short
+```
+
 ## Local preview on macOS 27
 
 From this checkout, launch either preview:

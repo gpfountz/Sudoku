@@ -6,7 +6,8 @@
 
 import json
 import os
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,7 +18,7 @@ import AppKit as AK
 import objc
 import pytest
 import Quartz as Q
-from Foundation import NSProcessInfo, NSRunLoop, NSTimer
+from Foundation import NSDate, NSProcessInfo, NSRunLoop, NSTimer
 
 from scripts.preview_hint_links import preview_game, preview_hint
 from sudoku.app import AppController
@@ -1078,11 +1079,28 @@ def discard_menu_test_input(application: Any) -> None:
     application.discardEventsMatchingMask_beforeEvent_(input_mask, None)
 
 
-@pytest.mark.parametrize("input_method", ["keyboard", "mouse"] * 2)
+def wait_for_native_state(application: Any, ready: Callable[[], bool]) -> bool:
+    """Dispatch normal AppKit events until a focus transition completes or times out."""
+    deadline: float = time.monotonic() + 3
+    while not ready() and time.monotonic() < deadline:
+        event: Any = application.nextEventMatchingMask_untilDate_inMode_dequeue_(
+            AK.NSEventMaskAny,
+            NSDate.dateWithTimeIntervalSinceNow_(0.02),
+            AK.NSDefaultRunLoopMode,
+            True,
+        )
+        if event is not None:
+            application.sendEvent_(event)
+        application.updateWindows()
+    return ready()
+
+
+@pytest.mark.parametrize("input_method", ["keyboard", "mouse"])
+@pytest.mark.parametrize("start_inactive", [False, True])
 def test_themed_dropdown_keeps_native_menu_selection(
-    native_controller: Any, input_method: str
+    native_controller: Any, input_method: str, start_inactive: bool
 ) -> None:
-    """Exercise repeated genuine input with isolated native themed menu tracking."""
+    """Exercise genuine menu input after acquiring focus, including inactive-app recovery."""
     controller: Any = native_controller
     controller.settings_controls = {}
     controller.preferences.appearance = "Light"
@@ -1193,6 +1211,25 @@ def test_themed_dropdown_keeps_native_menu_selection(
     for scheduled in (timer, guard):
         NSRunLoop.mainRunLoop().addTimer_forMode_(scheduled, AK.NSEventTrackingRunLoopMode)
     try:
+        discard_menu_test_input(application)
+        if start_inactive:
+            application.hide_(None)
+            assert wait_for_native_state(
+                application,
+                lambda: bool(application.isHidden() and not application.isActive()),
+            ), "Could not establish an inactive app for the menu focus regression"
+            application.unhideWithoutActivation()
+            assert not application.isActive()
+        event_state["initial_application_active"] = bool(application.isActive())
+        controller.settings_window.makeKeyAndOrderFront_(None)
+        application.activate()
+        focused: bool = wait_for_native_state(
+            application,
+            lambda: bool(application.isActive() and controller.settings_window.isKeyWindow()),
+        )
+        event_state["pre_menu_application_active"] = bool(application.isActive())
+        event_state["pre_menu_settings_key"] = bool(controller.settings_window.isKeyWindow())
+        assert focused, json.dumps(event_state, indent=2, sort_keys=True)
         discard_menu_test_input(application)
         popup.performClick_(None)
         assert popup.titleOfSelectedItem() == controller.preferences.appearance == "Dark", (
