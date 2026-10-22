@@ -265,6 +265,7 @@ def test_source_review_cells_preserve_digits(
 ) -> None:
     """Read the actual Sequoia review cells with normal and experimental recognition."""
     from scripts.ocr_experiment import experimental_fast_ocr
+    from sudoku import import_images
 
     path: Path = Path(__file__).parent / "fixtures" / f"import-review-{name}.png"
     cell: ImageArray = decode_image(read_image_file(path))
@@ -273,7 +274,7 @@ def test_source_review_cells_preserve_digits(
     with experimental_fast_ocr(fast_first):
         value: int
         needs_review: bool
-        value, needs_review = recognize_digit(glyph)
+        value, needs_review = import_images.recognize_digit(glyph)
     assert value == expected
     if modern_vision_baseline:
         assert not needs_review
@@ -399,10 +400,63 @@ def test_compact_recognition_requires_agreement(
     assert recognize_digit(patch) == expected
 
 
-def test_confident_recognition_avoids_extra_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("corroborate", [False, True])
+def test_confident_recognition_avoids_extra_retries(
+    corroborate: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Keep the normal single-call path for clear digits."""
     reader: Mock = Mock(return_value=(3, 1.0))
     monkeypatch.setattr("sudoku.import_images.recognize_repeated_digit", reader)
     patch: ImageArray = np.full((170, 170), 255, dtype=np.uint8)
-    assert recognize_digit(patch) == (3, False)
+    assert recognize_digit(patch, corroborate_compact=corroborate) == (3, False)
     reader.assert_called_once_with(patch, 3)
+
+
+@pytest.mark.parametrize(
+    ("compact_readings", "extra", "enabled", "expected", "calls"),
+    [
+        ([(5, 0.30), (5, 1.0)], (5, 1.0), True, (5, False), 6),
+        ([(5, 1.0), (5, 0.30)], (5, 0.85), True, (5, False), 6),
+        ([(5, 0.30), (5, 1.0)], (5, 0.84), True, (5, True), 6),
+        ([(5, 0.30), (5, 1.0)], (5, 0.30), True, (5, True), 6),
+        ([(5, 0.30), (5, 1.0)], (6, 1.0), True, (5, True), 6),
+        ([(5, 0.30), (5, 1.0)], (0, 0.0), True, (5, True), 6),
+        ([(5, 0.30), (5, 0.50)], None, True, (5, True), 5),
+        ([(5, 1.0), (5, 1.0)], None, True, (5, False), 5),
+        ([(5, 0.30), (6, 1.0)], None, True, (0, True), 5),
+        ([(5, 0.30), (5, 1.0)], None, False, (5, True), 5),
+    ],
+)
+def test_compact_corroboration_requires_two_confident_readings(
+    compact_readings: list[tuple[int, float]],
+    extra: tuple[int, float] | None,
+    enabled: bool,
+    expected: tuple[int, bool],
+    calls: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Replay the Intel 5 and require another confident agreement before clearing review."""
+    patch: ImageArray = np.full((170, 170), 255, dtype=np.uint8)
+    cv2.putText(patch, "5", (50, 140), cv2.FONT_HERSHEY_SIMPLEX, 4.5, 0, 2)
+    readings: list[tuple[int, float]] = [(0, 0.0), (5, 0.30), (0, 0.0), *compact_readings]
+    if extra is not None:
+        readings.append(extra)
+    reader: Mock = Mock(side_effect=readings)
+    monkeypatch.setattr("sudoku.import_images.recognize_repeated_digit", reader)
+    assert recognize_digit(patch, corroborate_compact=enabled) == expected
+    assert reader.call_count == calls
+    if calls == 6:
+        assert reader.call_args.args[1] == 4
+        compact: ImageArray | None = compact_digit_patch(patch)
+        assert compact is not None
+        assert np.array_equal(reader.call_args.args[0], compact)
+
+
+def test_compact_corroboration_preserves_prior_conflicts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep conflicting initial digits flagged without seeking compact confirmations."""
+    patch: ImageArray = np.full((170, 170), 255, dtype=np.uint8)
+    cv2.putText(patch, "5", (50, 140), cv2.FONT_HERSHEY_SIMPLEX, 4.5, 0, 2)
+    reader: Mock = Mock(side_effect=[(3, 0.30), (5, 0.30), (0, 0.0)])
+    monkeypatch.setattr("sudoku.import_images.recognize_repeated_digit", reader)
+    assert recognize_digit(patch, corroborate_compact=True) == (3, True)
+    assert reader.call_count == 3

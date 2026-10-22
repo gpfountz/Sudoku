@@ -281,7 +281,7 @@ def compact_digit_patch(patch: ImageArray) -> ImageArray | None:
     return patch[:, left:right]
 
 
-def recognize_digit(patch: ImageArray) -> tuple[int, bool]:
+def recognize_digit(patch: ImageArray, *, corroborate_compact: bool = False) -> tuple[int, bool]:
     """Retry inconclusive OCR with varied counts and spacing, preserving conflicting readings."""
     value: int
     confidence: float
@@ -305,6 +305,14 @@ def recognize_digit(patch: ImageArray) -> tuple[int, bool]:
     first, first_confidence = recognize_repeated_digit(compact, 2)
     second, second_confidence = recognize_repeated_digit(compact, 3)
     if first and first == second and (not readings or first in readings):
+        if corroborate_compact and min(
+            first_confidence, second_confidence
+        ) < MINIMUM_OCR_CONFIDENCE <= max(first_confidence, second_confidence):
+            third: int
+            third_confidence: float
+            third, third_confidence = recognize_repeated_digit(compact, 4)
+            if third == first and third_confidence >= MINIMUM_OCR_CONFIDENCE:
+                return first, False
         return first, min(first_confidence, second_confidence) < MINIMUM_OCR_CONFIDENCE
     return value, True
 

@@ -4,6 +4,7 @@
 
 """Keep the opt-in OCR experiment conservative and scoped to its preview process."""
 
+from collections.abc import Callable
 from unittest.mock import Mock
 
 import numpy as np
@@ -58,7 +59,23 @@ def test_fast_experiment_leaves_normal_recognition_untouched(
 def test_fast_experiment_restores_reader_after_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     """Uninstall the experimental reader even when native recognition raises."""
     reader: Mock = Mock(side_effect=ValueError("Native recognition failed"))
+    digit_reader: Callable[..., tuple[int, bool]] = import_images.recognize_digit
     monkeypatch.setattr(import_images, "recognize_repeated_digit", reader)
     with pytest.raises(ValueError, match="Native recognition failed"), experimental_fast_ocr(True):
         import_images.recognize_repeated_digit(np.full((170, 170), 255, dtype=np.uint8), 3)
     assert import_images.recognize_repeated_digit is reader
+    assert import_images.recognize_digit is digit_reader
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_compact_corroboration_is_scoped_to_experiment(
+    enabled: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Enable the extra compact retry only for the explicit experiment and restore it."""
+    reader: Mock = Mock(return_value=(5, True))
+    monkeypatch.setattr(import_images, "recognize_digit", reader)
+    glyph: ImageArray = np.full((170, 170), 255, dtype=np.uint8)
+    with experimental_fast_ocr(enabled):
+        assert import_images.recognize_digit(glyph) == (5, True)
+    assert import_images.recognize_digit is reader
+    assert reader.call_args.kwargs == ({"corroborate_compact": True} if enabled else {})

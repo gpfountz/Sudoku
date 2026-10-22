@@ -19,6 +19,7 @@ def experimental_fast_ocr(enabled: bool) -> Iterator[None]:
         yield
         return
     original: Callable[..., tuple[int, float]] = import_images.recognize_repeated_digit
+    original_digit: Callable[..., tuple[int, bool]] = import_images.recognize_digit
 
     def fast_then_accurate(source: ImageArray, copies: int) -> tuple[int, float]:
         """Use Accurate recognition whenever Fast does not provide confident digits."""
@@ -33,5 +34,14 @@ def experimental_fast_ocr(enabled: bool) -> Iterator[None]:
             return digit, confidence
         return original(source, copies)
 
-    with patch.object(import_images, "recognize_repeated_digit", fast_then_accurate):
+    def corroborate_digit(
+        source: ImageArray, *, corroborate_compact: bool = True
+    ) -> tuple[int, bool]:
+        """Seek a second confident compact reading when only one retry is confident."""
+        return original_digit(source, corroborate_compact=corroborate_compact)
+
+    with (
+        patch.object(import_images, "recognize_repeated_digit", fast_then_accurate),
+        patch.object(import_images, "recognize_digit", corroborate_digit),
+    ):
         yield

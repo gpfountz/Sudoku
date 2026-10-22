@@ -267,6 +267,50 @@ formatting and Mypy also passed. The new diagnostic was exercised with all three
 supported local revisions; the full desktop suite was not repeated for this
 fixture and diagnostic addition.
 
+### Intel source-cell trace and bounded retry
+
+The maintainer ran the source-review diagnostic on the Intel Sequoia MacBook
+with Vision revision 3 and the Fast-first experiment. The identical file pixels
+produced these results:
+
+| Cell | Result | Seconds | Evidence |
+| --- | --- | ---: | --- |
+| Row 1, column 9 | 3, review required | 2.2377 | Three readings at confidence about 0.30 |
+| Row 2, column 5 | 9, accepted | 0.6185 | Initial confidence about 0.30, then 1.00 for two and four copies |
+| Row 9, column 9 | 5, review required | 2.5915 | Compact two-copy reading about 0.30; compact three-copy reading 1.00 |
+
+These results reproduce the file import's two review flags. They do not explain
+the separate clipboard capture's 9, whose source pixels have not been supplied.
+
+The experimental reader now permits one extra four-copy compact reading when
+the two existing compact readings agree but exactly one reaches the unchanged
+0.85 confidence threshold. Review clears only when the extra reading agrees and
+also reaches that threshold, providing two confident readings with different
+copy counts. An absent, weak, or conflicting result retains review. Earlier
+conflicting digits still block acceptance, and two weak compact readings do not
+trigger extra work. Normal app recognition keeps the previous policy.
+
+This targets the reported 5; it does not address the consistently weak 3. The
+extra reading's Intel result is not yet known, so the 5 may still require review.
+After updating, rerun the same short diagnostic before rescanning a full image:
+
+```sh
+git pull --ff-only
+.venv/bin/python -m scripts.diagnose_ocr --fixture source-review --fast-first
+```
+
+When retrying the UI, quit and relaunch the preview with `--fast-ocr` so it uses
+the updated experiment.
+
+Local validation passed **1,079 desktop tests in 166.10 seconds**. After two
+additional retry guards were added to the tests, the final affected native suite
+passed **63 tests in 8.06 seconds**. The exact Intel 5 trace is replayed in unit
+checks with confident, weak, absent, and conflicting extra readings. Seven real
+OCR fixture cases also passed separately with the experimental reader on each
+of Vision revisions 2 and 3, retaining strict modern no-review expectations.
+All 81 values in the original JPEG still match with both readers and both
+revisions. Ruff lint and formatting and Mypy passed.
+
 ## Local preview on macOS 27
 
 From this checkout, launch either preview:
