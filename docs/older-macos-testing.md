@@ -103,6 +103,55 @@ The board appeared despite these messages. Their relationship to the patched
 graphics stack and any effect on themes or image recognition remain unverified;
 the messages are not suppressed by this compatibility work.
 
+## Manual visual follow-up
+
+The maintainer's manual Sequoia preview identified clipped right edges on Apply
+and Show Another Hint, plus dark native button fills behind black text in Light
+High Contrast. A native regression model with seven-point horizontal button
+alignment margins reproduces the clipping at three window sizes. The hint action
+rows now reserve those native margins inside the scroll viewport; text retains
+the full panel width. Modern controls with zero margins retain their layout.
+
+For systems using the rounded fallback, unselected action and choice buttons now
+retain the native background instead of applying the High Contrast background as
+a bezel tint. Selected choices keep their accent and selected text. Systems with
+glass support retain the existing theme tint behavior. Local checks cover Light,
+Dark, enabled and disabled buttons, each selected choice, and switching back to
+Default. Active-window visual checks on the M4 covered Light and Dark using the
+forced rounded fallback. These fixes still need a manual Sequoia check:
+
+```sh
+RUN_NATIVE_LAYOUT_TESTS=1 .venv/bin/python -m pytest -q tests/test_native_layout.py -k 'hint_button_bezels or older_high_contrast'
+.venv/bin/python -m scripts.run_compatibility_preview
+```
+
+Local follow-up validation on October 22, 2026, using the M4 on macOS 27.0.1:
+the complete desktop-enabled suite passed **1,042 tests in 178.49 seconds**.
+Ruff lint and formatting and Mypy also passed. This includes both the modern
+control path and the forced fallback regressions.
+
+The maintainer clarified that both clipboard and file imports populate most
+digits but flag many for review. The screenshots show 29–31 flagged cells despite
+a mathematically valid puzzle. This remains a usability and performance issue;
+the earlier passing import tests establish recognition and confirmation behavior,
+not an acceptable number of review flags or scan time.
+
+The diagnostic now offers an isolated comparison of the OS's supported
+[Vision algorithm revisions](https://developer.apple.com/documentation/vision/vnrecognizetextrequest).
+It creates genuine requests with each revision and restores the default request
+factory afterwards. App recognition settings and review thresholds are unchanged.
+Compare just one known cell on the Intel MacBook:
+
+```sh
+.venv/bin/python -m scripts.diagnose_ocr --fixture thin-digits --cells 3 --compare-revisions
+```
+
+On the M4, revisions 1 and 2 reproduced low confidence on that 9 (roughly
+0.30–0.50), while revision 3 returned 1.00. Separate temporary layout experiments
+improved some readings but produced conflicting high-confidence 6/9 results on
+the full fixture. Those experiments have not changed production OCR. The Intel
+comparison is still needed before selecting an OCR improvement.
+
 ## Local preview on macOS 27
 
 From this checkout, launch either preview:

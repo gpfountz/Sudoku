@@ -347,12 +347,20 @@ class AdaptiveLayout:
         result: Any = stack(
             [c["hint_title"], c["hint_scroll"], actions, self.hint_alternatives], True, 8
         )
+        result.setAlignment_(AK.NSLayoutAttributeCenterX)
         fixed(c["hint_title"], "height", 24)
         fixed(actions, "height", 30)
         c["hint_scroll"].setContentHuggingPriority_forOrientation_(
             1, AK.NSLayoutConstraintOrientationVertical
         )
-        for child in result.arrangedSubviews():
+        for key, child in (
+            ("hint_actions", actions),
+            ("hint_alternatives", self.hint_alternatives),
+        ):
+            constraint: Any = child.widthAnchor().constraintEqualToAnchor_(result.widthAnchor())
+            constraint.setActive_(True)
+            self.constraints[f"{key}_width"] = constraint
+        for child in (c["hint_title"], c["hint_scroll"]):
             fill_width(child, result)
         return result
 
@@ -439,6 +447,16 @@ class AdaptiveLayout:
             return
         self.updating = True
         try:
+            inset: float = max(
+                max(
+                    float(self.controls[key].alignmentRectInsets().left),
+                    float(self.controls[key].alignmentRectInsets().right),
+                    0,
+                )
+                for key in ("previous_hint", "hint", "apply_hint", "another_hint", "reveal")
+            )
+            for key in ("hint_actions_width", "hint_alternatives_width"):
+                self.constraints[key].setConstant_(-2 * inset)
             width: float = self.window.contentView().bounds().size.width - 32
             keys: list[str] = ["new"] + ([] if self.controls["daily"].isHidden() else ["daily"])
             self.button_rows(keys + ["import", "restart", "pause"], width, self.header)

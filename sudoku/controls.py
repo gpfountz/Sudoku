@@ -10,6 +10,7 @@ import AppKit as AK
 import objc
 from Foundation import NSDictionary, NSString
 
+from sudoku import compatibility
 from sudoku.compatibility import action_bezel_style
 from sudoku.theme import DEFAULT_THEME, Theme
 
@@ -25,8 +26,17 @@ def button_title(button: Any, color: Any) -> Any:
 def apply_action_theme(button: Any, theme: Theme) -> None:
     """Theme native action text and use opaque controls for High Contrast."""
     button.setBezelStyle_(action_bezel_style(theme.high_contrast))
-    button.setBezelColor_(theme.controls.background if theme.high_contrast else None)
+    button.setBezelColor_(unselected_bezel_color(theme))
     button.setAttributedTitle_(button_title(button, theme.text))
+
+
+def unselected_bezel_color(theme: Theme) -> Any:
+    """Keep older rounded bezels native; their tint can darken a light background."""
+    return (
+        theme.controls.background
+        if theme.high_contrast and compatibility.supports_glass_buttons()
+        else None
+    )
 
 
 def linear_rgb(color: Any) -> tuple[float, ...]:
@@ -340,9 +350,7 @@ class GlassChoiceControl(AK.NSStackView):
             button.setBezelColor_(
                 self.selected_bezel_color
                 if button_index == index
-                else self.theme.controls.background
-                if self.theme.high_contrast
-                else None
+                else unselected_bezel_color(self.theme)
             )
             button.setAttributedTitle_(
                 self.choice_titles[button_index][1 if button_index == index else 0]

@@ -9,11 +9,12 @@ import json
 import platform
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from importlib import metadata
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import cv2
 
@@ -22,6 +23,26 @@ from sudoku.engine import cell_name
 from sudoku.import_images import GridRegion, ImageArray
 
 ROOT: Path = Path(__file__).resolve().parents[1]
+
+
+@contextmanager
+def vision_revision(revision: int | None) -> Iterator[None]:
+    """Select an experimental engine only within this diagnostic's request creation."""
+    if revision is None:
+        yield
+        return
+    request_type: Any = import_images.V.VNRecognizeTextRequest
+
+    def create_request() -> Any:
+        """Create a genuine Vision request with the requested algorithm revision."""
+        request: Any = request_type.alloc().init()
+        request.setRevision_(revision)
+        return request
+
+    factory: Mock = Mock()
+    factory.alloc.return_value.init.side_effect = create_request
+    with patch.object(import_images.V, "VNRecognizeTextRequest", factory):
+        yield
 
 
 def trace_digit(glyph: ImageArray) -> dict[str, Any]:
@@ -103,26 +124,47 @@ def main() -> None:
     parser.add_argument(
         "--cells", type=int, nargs="+", default=[3, 5, 8], help="Zero-based cell indices"
     )
+    parser.add_argument(
+        "--compare-revisions",
+        action="store_true",
+        help="Compare supported Vision algorithms without changing the app's defaults",
+    )
     arguments: argparse.Namespace = parser.parse_args()
     if any(index < 0 or index >= 81 for index in arguments.cells):
         parser.error("Cell indices must be between 0 and 80")
     request: Any = import_images.V.VNRecognizeTextRequest.alloc().init()
+    request_type: Any = import_images.V.VNRecognizeTextRequest
+    supported: Any = request_type.supportedRevisions()
+    revisions: list[int] = [
+        revision
+        for revision in range(1, int(request_type.currentRevision()) + 1)
+        if supported.containsIndex_(revision)
+    ]
+    glyphs: list[tuple[str, ImageArray | None]] = fixture_glyphs(arguments.fixture, arguments.cells)
+    results: list[dict[str, Any]] = []
+    for revision in revisions if arguments.compare_revisions else [None]:
+        with vision_revision(revision):
+            for name, glyph in glyphs:
+                result: dict[str, Any] = (
+                    trace_digit(glyph)
+                    if glyph is not None
+                    else {"digit": 0, "needs_review": False, "attempts": []}
+                )
+                results.append(
+                    {"cell": name, "revision": revision or int(request.revision()), **result}
+                )
     report: dict[str, Any] = {
         "macos": platform.mac_ver()[0],
         "architecture": platform.machine(),
         "python": sys.version.split()[0],
         "vision_request_revision": int(request.revision()),
+        "supported_revisions": revisions,
         "packages": {
             name: metadata.version(name)
             for name in ("pyobjc-framework-Vision", "opencv-python-headless", "numpy")
         },
         "fixture": arguments.fixture,
-        "results": [
-            {"cell": name, **trace_digit(glyph)}
-            if glyph is not None
-            else {"cell": name, "digit": 0, "needs_review": False, "attempts": []}
-            for name, glyph in fixture_glyphs(arguments.fixture, arguments.cells)
-        ],
+        "results": results,
     }
     print(json.dumps(report, indent=2))
 

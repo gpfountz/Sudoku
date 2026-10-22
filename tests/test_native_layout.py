@@ -73,6 +73,14 @@ class LegacyInsetPopUpButton(AK.NSPopUpButton):
         return AK.NSEdgeInsetsMake(6, 7, 6, 7)
 
 
+class LegacyInsetButton(AK.NSButton):
+    """Model the bezel frame extending beyond older AppKit's button alignment box."""
+
+    def alignmentRectInsets(self) -> Any:
+        """Expose seven points of horizontal native bezel decoration on each side."""
+        return AK.NSEdgeInsetsMake(0, 7, 0, 7)
+
+
 class LegacyRowMenu(AK.NSMenu):
     """Model shorter native text rows while preserving custom-view heights."""
 
@@ -238,6 +246,8 @@ def native_controller(
         monkeypatch.setattr(AK, "NSPopUpButton", LegacyInsetPopUpButton)
     if getattr(request, "param", None) == "legacy-menu-rows":
         monkeypatch.setattr(AK, "NSMenu", LegacyRowMenu)
+    if getattr(request, "param", None) == "legacy-button-insets":
+        monkeypatch.setattr(AK, "NSButton", LegacyInsetButton)
     with objc.autorelease_pool():
         AK.NSApplication.sharedApplication()
         monkeypatch.setattr(AK, "NSWindow", LayoutPreviewWindow)
@@ -547,6 +557,40 @@ def test_named_themes_reach_settings_menus_dialogs_and_choice_text(
     finally:
         alert.window().close()
         controller.settings_window.close()
+
+
+@pytest.mark.parametrize("native_controller", [True], indirect=True)
+@pytest.mark.parametrize("appearance", ["Light", "Dark"])
+@pytest.mark.parametrize("enabled", [False, True])
+def test_older_high_contrast_buttons_retain_native_unselected_surfaces(
+    native_controller: Any, appearance: str, enabled: bool
+) -> None:
+    """Avoid the tinted legacy bezel that renders dark behind Light-mode black text."""
+    controller: Any = native_controller
+    controller.preferences.appearance = appearance
+    theme: Any = theme_for_name("High Contrast")
+    controller.theme = theme
+    controller.apply_appearance()
+    for key in ("new", "pause", "undo", "hint", "apply_hint", "another_hint"):
+        button: Any = controller.controls[key]
+        button.setEnabled_(enabled)
+        assert button.bezelColor() is None, key
+        text: Any = button.attributedTitle().attribute_atIndex_effectiveRange_(
+            AK.NSForegroundColorAttributeName, 0, None
+        )[0]
+        assert text.isEqual_(theme.text), key
+    for key in ("order", "mode"):
+        choices: Any = controller.controls[key]
+        choices.setEnabled_(enabled)
+        for selected in range(len(choices.choice_buttons)):
+            choices.setSelectedSegment_(selected)
+            for index, button in enumerate(choices.choice_buttons):
+                if index == selected:
+                    assert button.bezelColor().isEqual_(theme.accent)
+                else:
+                    assert button.bezelColor() is None
+    controller.apply_theme(DEFAULT_THEME)
+    assert controller.controls["new"].bezelColor() is None
 
 
 def test_high_contrast_board_adds_non_color_cues_without_editing_game(
@@ -1648,6 +1692,27 @@ def test_help_dialog_hides_unneeded_scrollbar(native_controller: Any) -> None:
     scroll.tile()
     assert scroll.documentView().frame().size.height == scroll.contentView().bounds().size.height
     assert scroll.verticalScroller().isHidden()
+
+
+@pytest.mark.parametrize("native_controller", [False, "legacy-button-insets"], indirect=True)
+@pytest.mark.parametrize("size", [(1040, 760), (1200, 640), (1440, 900)])
+def test_hint_button_bezels_fit_inside_the_scroll_view(
+    native_controller: Any, size: tuple[int, int]
+) -> None:
+    """Keep Apply and alternate hint bezels visible despite native alignment margins."""
+    controller: Any = native_controller
+    controller.window.setContentSize_(size)
+    controller.layout()
+    layout: Any = controller.adaptive_layout
+    viewport: Any = layout.support_scroll.contentView()
+    for key in ("previous_hint", "hint", "apply_hint", "another_hint", "reveal"):
+        button: Any = controller.controls[key]
+        if button.isHiddenOrHasHiddenAncestor():
+            continue
+        assert contains(layout.hints, button), key
+        frame: Any = viewport.convertRect_fromView_(button.bounds(), button)
+        assert AK.NSMinX(frame) >= AK.NSMinX(viewport.bounds()) - 0.5, key
+        assert AK.NSMaxX(frame) <= AK.NSMaxX(viewport.bounds()) + 0.5, key
 
 
 @pytest.mark.parametrize(
