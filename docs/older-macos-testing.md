@@ -64,6 +64,18 @@ python3.14 -m venv .venv
 .venv/bin/python -m scripts.versioning install
 ```
 
+The source preview runs directly from this checkout; an editable installation is
+optional. If you want the installed `sudoku` command or package metadata, install
+the reviewed requirements first, then run:
+
+```sh
+.venv/bin/python -m pip install --no-deps -e .
+```
+
+Using `--no-deps` retains the dependency versions just installed from
+`requirements-dev.txt`. That requirements file also restores its reviewed pip
+version if pip was upgraded separately.
+
 Record the tested environment and source revision:
 
 ```sh

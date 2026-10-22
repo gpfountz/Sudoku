@@ -5,11 +5,16 @@
 """Build the local macOS application bundle with py2app."""
 
 import os
+from pathlib import Path
+from runpy import run_path
 
 from py2app.build_app import py2app
 from setuptools import setup
 
-from sudoku.version import APP_VERSION
+# Build isolation must not depend on the application already being importable.
+APP_VERSION: str = str(
+    run_path(str(Path(__file__).resolve().parent / "sudoku/version.py"))["APP_VERSION"]
+)
 
 
 class BundleCommand(py2app):
