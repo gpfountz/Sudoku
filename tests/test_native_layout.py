@@ -4,6 +4,7 @@
 
 """Exercise actual AppKit constraints and board coordinates without opening or saving windows."""
 
+import json
 import os
 from collections.abc import Iterator
 from dataclasses import replace
@@ -1065,11 +1066,23 @@ def test_settings_menu_mouse_and_accessibility_choices_send_one_action(
         controller.settings_window.close()
 
 
-@pytest.mark.parametrize("input_method", ["keyboard", "mouse"])
+def discard_menu_test_input(application: Any) -> None:
+    """Discard queued input left behind by a previous native menu test."""
+    input_mask: int = (
+        AK.NSEventMaskLeftMouseDown
+        | AK.NSEventMaskLeftMouseUp
+        | AK.NSEventMaskMouseMoved
+        | AK.NSEventMaskKeyDown
+        | AK.NSEventMaskKeyUp
+    )
+    application.discardEventsMatchingMask_beforeEvent_(input_mask, None)
+
+
+@pytest.mark.parametrize("input_method", ["keyboard", "mouse"] * 2)
 def test_themed_dropdown_keeps_native_menu_selection(
     native_controller: Any, input_method: str
 ) -> None:
-    """Exercise genuine keyboard and mouse events inside native themed menu tracking."""
+    """Exercise repeated genuine input with isolated native themed menu tracking."""
     controller: Any = native_controller
     controller.settings_controls = {}
     controller.preferences.appearance = "Light"
@@ -1092,6 +1105,8 @@ def test_themed_dropdown_keeps_native_menu_selection(
             window: Any = row.window()
             event_state["row_frame"] = str(row.frame())
             event_state["window_visible"] = bool(window and window.isVisible())
+            event_state["application_active"] = bool(application.isActive())
+            event_state["settings_key"] = bool(controller.settings_window.isKeyWindow())
             if window is None or not window.isVisible() or row.bounds().size.width <= 0:
                 return
             point: Any = row.convertPoint_toView_(
@@ -1100,9 +1115,20 @@ def test_themed_dropdown_keeps_native_menu_selection(
             event_state["click_point"] = str(point)
             screen_point: Any = window.convertPointToScreen_(point)
             display_height: float = float(AK.NSScreen.screens()[0].frame().size.height)
-            event_state["cursor_error"] = Q.CGWarpMouseCursorPosition(
-                (screen_point.x, display_height - screen_point.y)
+            phase: str = event_state.get("mouse_phase", "hover")
+            if phase == "hover":
+                event_state["cursor_error"] = Q.CGWarpMouseCursorPosition(
+                    (screen_point.x, display_height - screen_point.y)
+                )
+            event_state["actual_cursor"] = str(Q.CGEventGetLocation(Q.CGEventCreate(None)))
+            event_state["target_cursor"] = (screen_point.x, display_height - screen_point.y)
+            event_state["row_highlighted"] = bool(
+                row.highlighted or popup.itemWithTitle_("Dark").isHighlighted()
             )
+            pointer: Any = row.convertPoint_fromView_(
+                window.mouseLocationOutsideOfEventStream(), None
+            )
+            event_state["cursor_hits_row"] = bool(AK.NSPointInRect(pointer, row.bounds()))
             content: Any = window.contentView()
             event_state["hit_target"] = (
                 content.hitTest_(content.convertPoint_fromView_(point, None)) == row
@@ -1112,27 +1138,32 @@ def test_themed_dropdown_keeps_native_menu_selection(
                 "context_eventNumber_clickCount_pressure_"
             )
             mouse_factory: Any = getattr(AK.NSEvent, mouse_selector)
-            event_types: tuple[int, ...] = (
-                (AK.NSEventTypeLeftMouseDown, AK.NSEventTypeLeftMouseUp)
-                if event_state.get("hover_sent")
-                else (AK.NSEventTypeMouseMoved,)
-            )
-            if event_state.get("hover_sent"):
+            if phase == "press" and not event_state["cursor_hits_row"]:
+                return
+            event_type: int = {
+                "hover": AK.NSEventTypeMouseMoved,
+                "press": AK.NSEventTypeLeftMouseDown,
+                "release": AK.NSEventTypeLeftMouseUp,
+            }[phase]
+            if phase == "release":
                 timer.invalidate()
-            event_state["hover_sent"] = True
-            for event_type in event_types:
-                mouse_event: Any = mouse_factory(
-                    event_type,
-                    point,
-                    0,
-                    NSProcessInfo.processInfo().systemUptime(),
-                    window.windowNumber(),
-                    None,
-                    0,
-                    1,
-                    1,
-                )
-                application.postEvent_atStart_(mouse_event, False)
+            event_state["mouse_phase"] = {"hover": "press", "press": "release"}.get(
+                phase, "complete"
+            )
+            event_number: int = int(event_state.get("event_number", 0)) + 1
+            event_state["event_number"] = event_number
+            mouse_event: Any = mouse_factory(
+                event_type,
+                point,
+                0,
+                NSProcessInfo.processInfo().systemUptime(),
+                window.windowNumber(),
+                None,
+                event_number,
+                0 if phase == "hover" else 1,
+                1 if phase == "press" else 0,
+            )
+            application.postEvent_atStart_(mouse_event, False)
             return
         timer.invalidate()
         event_selector: str = (
@@ -1162,9 +1193,10 @@ def test_themed_dropdown_keeps_native_menu_selection(
     for scheduled in (timer, guard):
         NSRunLoop.mainRunLoop().addTimer_forMode_(scheduled, AK.NSEventTrackingRunLoopMode)
     try:
+        discard_menu_test_input(application)
         popup.performClick_(None)
         assert popup.titleOfSelectedItem() == controller.preferences.appearance == "Dark", (
-            event_state
+            json.dumps(event_state, indent=2, sort_keys=True)
         )
         assert controller.save.call_count == 1
     finally:
@@ -1173,6 +1205,7 @@ def test_themed_dropdown_keeps_native_menu_selection(
         if input_method == "mouse":
             Q.CGWarpMouseCursorPosition(original_cursor)
         controller.settings_window.close()
+        discard_menu_test_input(application)
 
 
 @pytest.mark.parametrize("theme", [DEFAULT_THEME, WARM_PAPER_THEME])

@@ -91,8 +91,8 @@ proposed approach to preserving the current macOS 27 experience.
 
 | Environment | Purpose | Current status |
 | --- | --- | --- |
-| M4, macOS 27 | Preserve current glass, theme, input, and window behavior. | First control-compatibility step implemented; validate native and forced-rounded paths locally. |
-| Intel MacBook, Sequoia 15 | Verify Intel installation, fallback controls, OCR, and performance. | User has hardware; testing pending. |
+| M4, macOS 27 | Preserve current glass, theme, input, and window behavior. | Native and forced-rounded paths validated locally; detailed results are in the testing procedure. |
+| Intel MacBook, Sequoia 15 | Verify Intel installation, fallback controls, OCR, and performance. | Source installation and manual follow-ups tested through OpenCore Legacy Patcher; full run reported 1,084 passes and one synthetic mouse-test failure. Targeted test repair awaits an Intel rerun. |
 | Sonoma 14, Apple Silicon | Verify the proposed oldest OS on ARM. | Test environment needed. |
 | Sonoma 14, Intel | Verify the proposed oldest OS on Intel. | Test environment needed if claiming this combination. |
 

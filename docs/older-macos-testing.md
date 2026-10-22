@@ -102,6 +102,10 @@ Can't create the cikl2metal preamble string
 The board appeared despite these messages. Their relationship to the patched
 graphics stack and any effect on themes or image recognition remain unverified;
 the messages are not suppressed by this compatibility work.
+Subsequent Intel probes imported AppKit, Quartz, and Vision, created the accent
+filter, and rendered plain and accent-filtered 8-by-8 images without reproducing
+the messages. Both renders produced images. The exact startup trigger remains
+unidentified; those small checks do not establish that every graphics path works.
 
 ## Manual visual follow-up
 
@@ -340,6 +344,46 @@ Teal in both appearances. Intel visual confirmation remains pending.
 All **112 theme tests** also passed, including the palette contrast checks;
 Ruff lint and formatting and Mypy passed. The full desktop suite was not repeated
 for this import-only styling change.
+
+The maintainer subsequently confirmed that the enabled Play title is readable
+on the Intel Sequoia Mac in the requested Light/Dark check.
+
+### Full Sequoia regression and menu input isolation
+
+The full desktop-enabled Intel run at `9446714` reported **1,084 passed and one
+failed in 1,216.91 seconds (20 minutes 16 seconds)**. Its only failure was
+`test_themed_dropdown_keeps_native_menu_selection[mouse]`: the Appearance popup
+remained Light instead of selecting Dark through synthesized mouse events. The
+native menu window was visible and the cursor warp reported success. The earlier
+isolated rerun and manual mouse selection had passed.
+
+Repeated menu openings also exposed test-order failures on the M4 using an
+isolated copy of the unchanged committed test. Queued input from a previous menu
+could affect the next programmatic opening. The test now discards leftover
+keyboard/mouse events at its boundaries and exercises two keyboard/mouse pairs
+in one process. Mouse hover, press, and release occur on separate tracking-loop
+turns; press waits for the actual pointer to be inside the target row. Event
+numbers, click counts, and pressure match the event type, and failures include
+full JSON with pointer, hit-target, window, and input-phase diagnostics. Cursor
+restoration, real native event dispatch, and the exact one-save assertion remain.
+Application dropdown code and OCR behavior are unchanged by this test repair.
+
+Before the repair, the repeated committed-test check stopped after **two failures
+and three passes**. With input isolation, **20 native/rounded keyboard and mouse
+cases passed in 9.57 seconds** in one process. The two-pair regression was then
+added to the regular suite. The final M4 native-layout run passed **442 tests in
+64.49 seconds**. Ruff lint and formatting and Mypy also passed. The updated Intel
+check is deliberately short:
+
+```sh
+git pull --ff-only
+RUN_NATIVE_LAYOUT_TESTS=1 .venv/bin/python -m pytest -q \
+  tests/test_native_layout.py -k themed_dropdown --tb=short
+```
+
+The full 20-minute Intel suite does not need to be repeated for this test-only
+repair before obtaining that targeted result. Normal older-macOS OCR integration
+remains the next code step after this validation gate.
 
 ## Local preview on macOS 27
 
