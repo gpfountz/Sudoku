@@ -5,7 +5,7 @@ Branch: `codex/feature-older-macos-support`.
 This step adds native rounded-button fallbacks for older systems while retaining
 glass on macOS 26 and newer. High Contrast keeps its opaque controls. Standalone
 packaging still targets macOS 27 and Apple Silicon; run this experiment from
-source. Sonoma and Intel Sequoia support remain unverified until tested there.
+source. Sonoma remains unverified, and Intel Sequoia testing is in progress.
 
 Local automated validation on October 21, 2026, using the M4 on macOS 27.0.1
 and CPython 3.14.8: the complete desktop-enabled suite passed **1,021 tests**.
@@ -13,6 +13,31 @@ Ruff lint and formatting, Mypy, and the dependency-license checks also passed.
 The control fallback was previewed in Light, Dark, and High Contrast. The
 maintainer completed hands-on local validation on October 21, 2026; this step
 is ready for source-based testing on the Intel Sequoia MacBook.
+
+## Reported Sequoia progress
+
+The Intel Haswell MacBook running macOS 15.8.1 through OpenCore Legacy Patcher
+successfully installed the source package and displayed the board. Manual
+visual and functional testing is still in progress.
+
+The first targeted native run reported 48 passed and two failures. Both failures
+were the same compact-menu assertion: its native frame measured 54 by 52 points
+instead of 40 by 40. A local native regression model reproduces those dimensions
+using alignment insets of 6 points vertically and 7 points horizontally. The
+assertion now checks the 40-by-40 Auto Layout alignment rectangle, allowing native
+decoration outside it. All 54 targeted control and compact-menu checks pass locally
+with this correction; a rerun on the Sequoia MacBook is still needed.
+
+These graphics diagnostics were also reported during launch:
+
+```text
+Could not initialize cikl2metal preamble file
+Can't create the cikl2metal preamble string
+```
+
+The board appeared despite these messages. Their relationship to the patched
+graphics stack and any effect on themes or image recognition remain unverified;
+the messages are not suppressed by this compatibility work.
 
 ## Local preview on macOS 27
 

@@ -64,6 +64,14 @@ class LayoutPreviewWindow(AK.NSWindow):
         return frame
 
 
+class LegacyInsetPopUpButton(AK.NSPopUpButton):
+    """Model older AppKit padding outside a popup's Auto Layout alignment bounds."""
+
+    def alignmentRectInsets(self) -> Any:
+        """Reproduce the 54-by-52 frame surrounding a 40-point alignment rectangle."""
+        return AK.NSEdgeInsetsMake(6, 7, 6, 7)
+
+
 def test_history_replay_buttons_sit_beside_the_table(
     tmp_path: Path,
     game: Game,
@@ -215,6 +223,8 @@ def native_controller(
     """Exercise native and older-OS controls without startup or player-data writes."""
     if getattr(request, "param", False):
         monkeypatch.setattr("sudoku.compatibility.supports_glass_buttons", lambda: False)
+    if getattr(request, "param", None) == "legacy-popup-insets":
+        monkeypatch.setattr(AK, "NSPopUpButton", LegacyInsetPopUpButton)
     with objc.autorelease_pool():
         AK.NSApplication.sharedApplication()
         monkeypatch.setattr(AK, "NSWindow", LayoutPreviewWindow)
@@ -786,7 +796,7 @@ def test_sparse_candidates_and_hint_marks_keep_their_fixed_positions(
     assert game_data(controller.game) == before
 
 
-@pytest.mark.parametrize("native_controller", [False, True], indirect=True)
+@pytest.mark.parametrize("native_controller", [False, True, "legacy-popup-insets"], indirect=True)
 def test_supported_styles_cover_actions_and_mode_controls(native_controller: Any) -> None:
     """Use supported styles for actions, entry modes, and the compact menu."""
     controller: Any = native_controller
@@ -826,7 +836,9 @@ def test_supported_styles_cover_actions_and_mode_controls(native_controller: Any
         choices.setEnabled_(True)
     compact_menu: Any = controller.adaptive_layout.compact_menu
     assert compact_menu.bezelStyle() == expected_style
-    assert compact_menu.frame().size.width == compact_menu.frame().size.height == 40
+    # Auto Layout sizes the alignment rectangle; native bezel margins can enlarge the frame.
+    alignment: Any = compact_menu.alignmentRectForFrame_(compact_menu.frame())
+    assert alignment.size.width == alignment.size.height == 40
     assert compact_menu.intrinsicContentSize().height <= compact_menu.frame().size.height
     assert all(
         controller.controls[f"digit{digit}"].bezelStyle() != getattr(AK, "NSBezelStyleGlass", -1)
@@ -2178,7 +2190,7 @@ def test_new_arrangement_starts_at_top_of_controls(native_controller: Any) -> No
     )
 
 
-@pytest.mark.parametrize("native_controller", [False, True], indirect=True)
+@pytest.mark.parametrize("native_controller", [False, True, "legacy-popup-insets"], indirect=True)
 def test_vertical_menu_preserves_entry_controls(native_controller: Any) -> None:
     """Keep entry controls visible while other actions use the compact menu."""
     c: Any = native_controller
