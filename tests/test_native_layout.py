@@ -1717,6 +1717,14 @@ def test_choice_button_bezels_fit_inside_their_control(
                 frame = viewport.convertRect_fromView_(button.bounds(), button)
                 assert AK.NSMinX(frame) >= AK.NSMinX(viewport.bounds()) - 0.5, key
                 assert AK.NSMaxX(frame) <= AK.NSMaxX(viewport.bounds()) + 0.5, key
+                title: Any = button.cell().titleRectForBounds_(button.bounds())
+                text_width: float = float(button.attributedTitle().size().width)
+                assert text_width <= title.size.width + 0.5, (
+                    key,
+                    button.title(),
+                    text_width,
+                    title.size.width,
+                )
 
 
 @pytest.mark.parametrize("native_controller", [False, "legacy-button-insets"], indirect=True)

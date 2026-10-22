@@ -342,6 +342,11 @@ class GlassChoiceControl(AK.NSStackView):
         """Keep the entire first and last button frames inside the row's bounds."""
         margin: float = horizontal_bezel_margin(self.choice_buttons)
         self.setEdgeInsets_(AK.NSEdgeInsetsMake(0, margin, 0, margin))
+        self.setDistribution_(
+            AK.NSStackViewDistributionFillProportionally
+            if margin
+            else AK.NSStackViewDistributionFillEqually
+        )
 
     @objc.python_method
     def apply_theme(self, theme: Theme) -> None:

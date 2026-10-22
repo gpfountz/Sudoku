@@ -205,6 +205,31 @@ also passed. Separate native checks exercised all seven real OCR fixture cases
 with the experimental reader and Vision revisions 2 and 3; every expected digit
 was preserved, with strict no-review fixture checks retained for revision 3.
 
+### Reported Intel experiment results
+
+At `1dfc1b2`, the maintainer confirmed that Number First and Color have complete
+borders. Clipboard recognition was reported as much faster; exact scan timings
+were not provided. Both tested imports showed two cells requiring review:
+
+| Input | Flagged cells shown in the screenshots |
+| --- | --- |
+| File image | Row 1, column 9: 3; row 9, column 9: 5 |
+| Clipboard image | Row 1, column 9: 3; row 2, column 5: 9 |
+
+The maintainer reported that the same clipboard import on the M4 required no
+review. The source cell for the top-right 3 visibly includes a "MENU" overlay;
+its role in the review decision has not been established. The displayed digits
+appear to match the visible source, but the original source images and actual
+cell confidence traces are needed to explain the remaining flags. No thresholds
+or review decisions have been relaxed based on these screenshots.
+
+The game screenshot also showed an ellipsis in Candidates. A follow-up lets
+choice rows with native bezel margins allocate width in proportion to button
+content, giving longer labels more room. Zero-margin controls retain their
+existing equal-width layout. Local title-area, border, layout, selection-action,
+and High Contrast checks passed **42 tests in 3.86 seconds**; Ruff and Mypy also
+passed. The full suite was not repeated for this title-allocation follow-up.
+
 ## Local preview on macOS 27
 
 From this checkout, launch either preview:
