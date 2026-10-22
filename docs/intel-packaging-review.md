@@ -34,6 +34,16 @@ binary distribution or certify complete third-party licensing obligations.
 
 ## Packaged-app validation
 
+The first Intel build reached py2app completion but failed while signing the main launcher:
+`Contents/MacOS/python` was unsigned. Inspection of the pinned py2app 0.28.10 implementation
+confirmed it automatically signs ARM64/universal2 apps but skips that step for `x86_64`.
+The shared builder now signs nested native code and framework containers explicitly, then signs
+the outer app after metadata and catalog changes. It no longer signs the main launcher early.
+Regression fixtures use actual unsigned Intel and ARM executables, reproduce that premature-signing
+failure, and pass strict verification after the corrected signing sequence. All 119 focused
+packaging/deployment/license/path checks pass after the repair, including failure propagation
+and signing-order coverage. The Intel retry and its packaged-app runtime checks remain pending.
+
 The M4/macOS 27.0.1 validation used the shared shell script with private output and installation
 directories under `/private/tmp`, leaving the regular installed app untouched. It produced one
 ARM64 app targeting 27.0 with SDK 27.0 and CPython 3.14.8. The app extracted from its ZIP passed

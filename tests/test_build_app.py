@@ -6,10 +6,12 @@
 
 import json
 import plistlib
+import shutil
 import subprocess
 import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -22,6 +24,7 @@ from scripts.build_app import (
     main,
     native_build_target,
     publish_build,
+    sign_bundle,
     verify_launcher_sdk,
     verify_native_binary,
     verify_native_payload,
@@ -166,6 +169,84 @@ def test_payload_checks_actual_native_files(tmp_path: Path, plist_minimum: str) 
             verify.assert_not_called()
 
 
+def test_sign_nested_code_before_outer_app(tmp_path: Path) -> None:
+    """Seal Python, extensions, and framework contents before their containers and outer app."""
+    bundle: Path = tmp_path / "Sudoku.app"
+    framework: Path = bundle / "Contents/Frameworks/Python.framework"
+    binary: Path = framework / "Versions/3.14/Python"
+    helper: Path = bundle / "Contents/MacOS/python"
+    extension: Path = bundle / "Contents/Resources/lib/python3.14/extension.so"
+    launcher: Path = bundle / "Contents/MacOS/Sudoku"
+    for path in (binary, helper, extension, launcher):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(bytes.fromhex("cffaedfe") + b"native payload")
+    (framework / "Python").symlink_to(binary)
+    with patch("scripts.build_app.sign_code") as sign:
+        sign_bundle(bundle)
+    signed: list[Path] = [call.args[0] for call in sign.call_args_list]
+    assert signed.count(binary) == 1
+    assert signed.index(binary) < signed.index(framework) < signed.index(bundle)
+    assert signed.index(helper) < signed.index(bundle)
+    assert signed.index(extension) < signed.index(bundle)
+    assert signed[-1] == bundle
+    assert launcher not in signed
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="Requires macOS code-signing tools")
+@pytest.mark.parametrize("architecture", ["x86_64", "arm64"])
+def test_sign_unsigned_python_in_actual_bundle(tmp_path: Path, architecture: str) -> None:
+    """Reproduce unsigned nested Python using real Intel/ARM binaries and strict codesign."""
+    bundle: Path = tmp_path / "Sudoku.app"
+    contents: Path = bundle / "Contents"
+    executables: Path = contents / "MacOS"
+    executables.mkdir(parents=True)
+    (contents / "Info.plist").write_bytes(
+        plistlib.dumps(
+            {
+                "CFBundleExecutable": "Sudoku",
+                "CFBundleIdentifier": "com.pfountz.sudoku.signing-test",
+                "CFBundlePackageType": "APPL",
+            }
+        )
+    )
+    prebuilt: Any = files("py2app.apptemplate").joinpath("prebuilt")
+    for name, template in (("Sudoku", "main"), ("python", "secondary")):
+        executable: Path = executables / name
+        shutil.copy2(str(prebuilt.joinpath(f"{template}-{architecture}")), executable)
+        subprocess.run(["codesign", "--remove-signature", str(executable)], check=True)
+    unsigned: subprocess.CompletedProcess[str] = subprocess.run(
+        ["codesign", "--verify", "--strict", str(executables / "python")],
+        capture_output=True,
+        text=True,
+    )
+    assert unsigned.returncode != 0
+    premature: subprocess.CompletedProcess[str] = subprocess.run(
+        ["codesign", "--force", "--sign", "-", str(executables / "Sudoku")],
+        capture_output=True,
+        text=True,
+    )
+    assert premature.returncode != 0
+    assert "python" in premature.stderr and "not signed at all" in premature.stderr
+    sign_bundle(bundle)
+    subprocess.run(["codesign", "--verify", "--strict", str(executables / "python")], check=True)
+    subprocess.run(["codesign", "--verify", "--deep", "--strict", str(bundle)], check=True)
+
+
+def test_nested_signing_failure_stops_before_outer_signature(tmp_path: Path) -> None:
+    """Propagate a failed child signature instead of claiming the app is ready to archive."""
+    bundle: Path = tmp_path / "Sudoku.app"
+    helper: Path = bundle / "Contents/MacOS/python"
+    with (
+        patch("scripts.build_app.native_payload_files", return_value=[helper]),
+        patch(
+            "scripts.build_app.sign_code", side_effect=subprocess.CalledProcessError(1, "codesign")
+        ) as sign,
+        pytest.raises(subprocess.CalledProcessError),
+    ):
+        sign_bundle(bundle)
+    sign.assert_called_once_with(helper)
+
+
 def test_direct_builder_rejects_unsafe_output_before_building(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -227,6 +308,7 @@ def test_builder_propagates_one_native_target(
             "scripts.build_app.verify_native_payload", wraps=verify_native_payload
         ) as payload_check,
         patch("scripts.build_app.verify_bundle"),
+        patch("scripts.build_app.sign_bundle") as sign,
         patch("scripts.build_app.subprocess.check_output", side_effect=["a" * 40, ""]),
         patch("scripts.build_app.subprocess.run", side_effect=build_stub),
     ):
@@ -236,6 +318,7 @@ def test_builder_propagates_one_native_target(
     assert command[command.index("--arch") + 1] == target.architecture
     assert setup_calls[0]["env"]["MACOSX_DEPLOYMENT_TARGET"] == target.minimum_macos
     assert launcher_check.call_args.args[1] == payload_check.call_args.args[1] == target
+    sign.assert_called_once()
     information: dict[str, Any] = json.loads((output / "build-info.json").read_text())
     assert information["architecture"] == target.architecture
     assert information["minimum_macos"] == target.minimum_macos

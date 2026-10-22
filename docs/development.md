@@ -255,6 +255,12 @@ It signs the finished bundle and verifies its signature. Direct `setup.py py2app
 this launcher replacement and can use legacy AppKit appearance. `scripts/create_icon.py` renders
 the code-defined icon with Cocoa.
 
+Final signing is explicit on both architectures: bundled Python, native extensions, and framework
+contents are signed before their framework containers; the outer app is signed last, after metadata
+and catalog cleanup. The builder does not depend on py2app's automatic ARM-only signing step.
+Every signing error stops the build before archiving or installation; strict verification remains
+required on the completed app and the helper's extracted ZIP.
+
 For catalog conversion, data backups, resource checks, and packaged save/resume testing, see
 [catalog maintenance and recovery](../SQLITE_MIGRATION.md). Source validation alone does not verify
 a packaged release; the deployment helper checks signatures but does not launch or smoke-test the app.

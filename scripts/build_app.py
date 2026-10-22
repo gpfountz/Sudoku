@@ -107,6 +107,12 @@ def verify_native_payload(bundle: Path, target: BuildTarget) -> None:
         information: dict[str, object] = plistlib.load(stream)
     if information.get("LSMinimumSystemVersion") != target.minimum_macos:
         raise RuntimeError("Bundle minimum macOS differs from the launcher target.")
+    for path in native_payload_files(bundle):
+        verify_native_binary(path, target)
+
+
+def native_payload_files(bundle: Path) -> list[Path]:
+    """Find each actual Mach-O file once, excluding resources and duplicate symlink paths."""
     magic_numbers: set[bytes] = {
         bytes.fromhex(value)
         for value in (
@@ -120,15 +126,42 @@ def verify_native_payload(bundle: Path, target: BuildTarget) -> None:
             "bfbafeca",
         )
     }
-    visited: set[Path] = set()
+    native_files: set[Path] = set()
     for path in bundle.rglob("*"):
-        if not path.is_file() or path.resolve() in visited:
+        if not path.is_file() or path.resolve() in native_files:
             continue
-        visited.add(path.resolve())
         with path.open("rb") as stream:
             if stream.read(4) not in magic_numbers:
                 continue
-        verify_native_binary(path, target)
+        native_files.add(path.resolve())
+    return sorted(native_files)
+
+
+def sign_bundle(bundle: Path) -> None:
+    """Sign py2app's nested native code and frameworks before sealing the outer app."""
+    executable: Path = (bundle / "Contents/MacOS/Sudoku").resolve()
+    targets: set[Path] = set(native_payload_files(bundle)) - {executable}
+    targets.update(path.resolve() for path in bundle.rglob("*.framework") if path.is_dir())
+    # Signing the main executable also seals its app. Defer it until Python and all
+    # extensions/frameworks are signed; py2app skips automatic signing on Intel.
+    for path in sorted(targets, key=lambda item: (-len(item.parts), str(item))):
+        sign_code(path)
+    sign_code(bundle)
+
+
+def sign_code(path: Path) -> None:
+    """Apply a local ad-hoc signature while retaining existing code metadata."""
+    subprocess.run(
+        [
+            "codesign",
+            "--force",
+            "--sign",
+            "-",
+            "--preserve-metadata=identifier,entitlements,flags,runtime",
+            str(path),
+        ],
+        check=True,
+    )
 
 
 def verify_native_binary(path: Path, target: BuildTarget) -> None:
@@ -192,7 +225,7 @@ def stage_catalog(destination: Path) -> None:
 
 
 def remove_duplicate_catalog(bundle: Path) -> None:
-    """Keep only the explicit resource copy, then renew the outer ad-hoc signature."""
+    """Keep only the explicit resource copy before the finished app is signed."""
     for data in bundle.glob("Contents/Resources/lib/python*/sudoku/data"):
         duplicate: Path = data / "catalog"
         if duplicate.exists():
@@ -200,7 +233,6 @@ def remove_duplicate_catalog(bundle: Path) -> None:
         legacy: Path = data / "puzzles.json"
         if legacy.exists():
             legacy.unlink()
-    subprocess.run(["codesign", "--force", "--sign", "-", str(bundle)], check=True)
 
 
 def write_build_info(bundle: Path, target: BuildTarget) -> None:
@@ -311,12 +343,12 @@ def main() -> None:
         bundle: Path = staging / "dist/Sudoku.app"
         executable: Path = bundle / "Contents/MacOS/Sudoku"
         shutil.copy2(launcher, executable)
-        subprocess.run(["codesign", "--force", "--sign", "-", str(executable)], check=True)
         verify_launcher_sdk(executable, target)
         verify_native_payload(bundle, target)
         write_build_info(bundle, target)
         remove_duplicate_catalog(bundle)
         verify_packaged_licenses(bundle)
+        sign_bundle(bundle)
         verify_bundle(bundle)
         subprocess.run(
             [
