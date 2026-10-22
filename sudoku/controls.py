@@ -39,6 +39,15 @@ def unselected_bezel_color(theme: Theme) -> Any:
     )
 
 
+def horizontal_bezel_margin(buttons: list[Any]) -> float:
+    """Reserve native bezel frames extending beyond horizontal alignment boxes."""
+    margin: float = 0.0
+    for button in buttons:
+        insets: Any = button.alignmentRectInsets()
+        margin = max(margin, float(insets.left), float(insets.right))
+    return margin
+
+
 def linear_rgb(color: Any) -> tuple[float, ...]:
     """Resolve an adaptive color in the linear RGB space used by Core Image."""
     resolved: Any = color.colorUsingColorSpace_(AK.NSColorSpace.sRGBColorSpace())
@@ -326,6 +335,13 @@ class GlassChoiceControl(AK.NSStackView):
             self.addArrangedSubview_(button)
             self.choice_buttons.append(button)
             self.choice_titles.append((normal_title, selected_title))
+        self.update_bezel_margins()
+
+    @objc.python_method
+    def update_bezel_margins(self) -> None:
+        """Keep the entire first and last button frames inside the row's bounds."""
+        margin: float = horizontal_bezel_margin(self.choice_buttons)
+        self.setEdgeInsets_(AK.NSEdgeInsetsMake(0, margin, 0, margin))
 
     @objc.python_method
     def apply_theme(self, theme: Theme) -> None:
@@ -342,6 +358,7 @@ class GlassChoiceControl(AK.NSStackView):
                 )
             )
         self.setSelectedSegment_(self.selected_index)
+        self.update_bezel_margins()
 
     def setSelectedSegment_(self, index: int) -> None:
         """Keep exactly one native button visibly selected."""

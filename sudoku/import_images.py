@@ -21,6 +21,7 @@ ImageArray = NDArray[Any]
 Corners = tuple[tuple[float, float], ...]
 BOARD_SIZE: int = 900
 MAX_IMAGE_BYTES: int = 128 * 1024 * 1024
+MINIMUM_OCR_CONFIDENCE: float = 0.85
 IMAGE_SIZE_ERROR: str = "This image is too large. Choose a smaller image or screenshot."
 
 
@@ -231,7 +232,9 @@ def digit_patch(cell: ImageArray) -> ImageArray | None:
     return result
 
 
-def recognize_repeated_digit(patch: ImageArray, copies: int) -> tuple[int, float]:
+def recognize_repeated_digit(
+    patch: ImageArray, copies: int, *, recognition_level: int | None = None
+) -> tuple[int, float]:
     """Read a repeated source glyph, requiring all copies to agree on one digit."""
     # Vision's text detector can miss an isolated glyph. Repeating the same patch
     # provides a line of text without introducing any new source information.
@@ -239,7 +242,9 @@ def recognize_repeated_digit(patch: ImageArray, copies: int) -> tuple[int, float
     cv2.putText(anchor, "AB", (8, 140), cv2.FONT_HERSHEY_SIMPLEX, 4.5, 0, 4, cv2.LINE_AA)
     line: ImageArray = np.concatenate((anchor, *([patch] * copies)), axis=1)
     request: Any = V.VNRecognizeTextRequest.alloc().init()
-    request.setRecognitionLevel_(V.VNRequestTextRecognitionLevelAccurate)
+    request.setRecognitionLevel_(
+        V.VNRequestTextRecognitionLevelAccurate if recognition_level is None else recognition_level
+    )
     request.setUsesLanguageCorrection_(False)
     request.setRecognitionLanguages_(["en-US"])
     handler: Any = V.VNImageRequestHandler.alloc().initWithCGImage_options_(
@@ -281,7 +286,7 @@ def recognize_digit(patch: ImageArray) -> tuple[int, bool]:
     value: int
     confidence: float
     value, confidence = recognize_repeated_digit(patch, 3)
-    if value and confidence >= 0.85:
+    if value and confidence >= MINIMUM_OCR_CONFIDENCE:
         return value, False
     first: int
     first_confidence: float
@@ -290,7 +295,7 @@ def recognize_digit(patch: ImageArray) -> tuple[int, bool]:
     first, first_confidence = recognize_repeated_digit(patch, 2)
     second, second_confidence = recognize_repeated_digit(patch, 4)
     if first and first == second and (not value or value == first):
-        return first, min(first_confidence, second_confidence) < 0.85
+        return first, min(first_confidence, second_confidence) < MINIMUM_OCR_CONFIDENCE
     readings: set[int] = {digit for digit in (value, first, second) if digit}
     if len(readings) > 1:
         return value, True
@@ -300,7 +305,7 @@ def recognize_digit(patch: ImageArray) -> tuple[int, bool]:
     first, first_confidence = recognize_repeated_digit(compact, 2)
     second, second_confidence = recognize_repeated_digit(compact, 3)
     if first and first == second and (not readings or first in readings):
-        return first, min(first_confidence, second_confidence) < 0.85
+        return first, min(first_confidence, second_confidence) < MINIMUM_OCR_CONFIDENCE
     return value, True
 
 

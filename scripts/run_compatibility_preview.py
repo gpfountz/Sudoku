@@ -6,6 +6,7 @@
 
 import argparse
 import os
+from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,20 +19,32 @@ def main() -> None:
         action="store_true",
         help="Preview the older-macOS button style on a system that supports glass.",
     )
+    parser.add_argument(
+        "--fast-ocr",
+        action="store_true",
+        help="Experiment with Fast OCR and Accurate fallback in a separate preview",
+    )
     arguments: argparse.Namespace = parser.parse_args()
     root: Path = Path(__file__).resolve().parents[1]
     mode: str = "Rounded" if arguments.rounded_controls else "Native"
-    os.environ["SUDOKU_DATA_DIR"] = str(root / ".preview-data" / "older-macos" / mode.lower())
+    if arguments.fast_ocr:
+        mode += " Fast OCR Experiment"
+    os.environ["SUDOKU_DATA_DIR"] = str(
+        root / ".preview-data" / "older-macos" / mode.lower().replace(" ", "-")
+    )
     os.environ["SUDOKU_WINDOW_AUTOSAVE_NAME"] = f"SudokuCompatibilityPreviewWindow{mode}"
     os.environ["SUDOKU_WINDOW_TITLE"] = f"Sudoku — Compatibility Preview ({mode})"
     os.environ["SUDOKU_CATALOG_DIR"] = str(root / "sudoku/data/catalog")
 
+    from scripts.ocr_experiment import experimental_fast_ocr
     from sudoku.app import main as launch
 
-    if arguments.rounded_controls:
-        with patch("sudoku.compatibility.supports_glass_buttons", return_value=False):
-            launch()
-    else:
+    with ExitStack() as contexts:
+        if arguments.rounded_controls:
+            contexts.enter_context(
+                patch("sudoku.compatibility.supports_glass_buttons", return_value=False)
+            )
+        contexts.enter_context(experimental_fast_ocr(arguments.fast_ocr))
         launch()
 
 

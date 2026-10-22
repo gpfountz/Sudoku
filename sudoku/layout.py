@@ -10,6 +10,7 @@ from typing import Any
 import AppKit as AK
 
 from sudoku.compatibility import action_bezel_style
+from sudoku.controls import horizontal_bezel_margin
 
 MINIMUM_CONTENT_SIZE: tuple[float, float] = (400, 600)
 MINIMUM_BOARD: float = 288
@@ -447,13 +448,11 @@ class AdaptiveLayout:
             return
         self.updating = True
         try:
-            inset: float = max(
-                max(
-                    float(self.controls[key].alignmentRectInsets().left),
-                    float(self.controls[key].alignmentRectInsets().right),
-                    0,
-                )
-                for key in ("previous_hint", "hint", "apply_hint", "another_hint", "reveal")
+            inset: float = horizontal_bezel_margin(
+                [
+                    self.controls[key]
+                    for key in ("previous_hint", "hint", "apply_hint", "another_hint", "reveal")
+                ]
             )
             for key in ("hint_actions_width", "hint_alternatives_width"):
                 self.constraints[key].setConstant_(-2 * inset)

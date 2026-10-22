@@ -150,7 +150,60 @@ On the M4, revisions 1 and 2 reproduced low confidence on that 9 (roughly
 0.30–0.50), while revision 3 returned 1.00. Separate temporary layout experiments
 improved some readings but produced conflicting high-confidence 6/9 results on
 the full fixture. Those experiments have not changed production OCR. The Intel
-comparison is still needed before selecting an OCR improvement.
+comparison has now completed: revisions 1, 2, and 3 all recognized the 9 but
+reported confidence about 0.30–0.50 and required review. Total readings took
+2.04, 1.64, and 1.92 seconds respectively. Switching revisions alone did not
+resolve this case; these single-cell timings do not establish a general speed
+advantage for any revision.
+
+## Choice-row borders and opt-in OCR experiment
+
+The maintainer confirmed that the High Contrast backgrounds are corrected.
+Number First and Color still had clipped borders. The choice control now reserves
+native bezel margins inside its own bounds, including the first button's left
+edge. It recomputes those margins when a theme changes. The same margin helper
+serves hint rows, avoiding separate rules for the two controls. Twelve native
+regression cases cover both themes, three window sizes, every selection, and
+modern and simulated legacy margins. Older-system visual confirmation remains
+pending for this follow-up.
+
+An isolated experiment tries Vision's Fast recognition level first and falls
+back to the existing Accurate reader whenever the result is absent or below the
+unchanged 0.85 threshold. The normal app and normal preview continue to use
+Accurate recognition. Fast alone missed some 1s in five of seven real fixture
+tests; adding the Accurate fallback preserved all expected digits in all seven
+tests. The combined reader also preserved exact fixture values with Vision
+revision 2, allowing its low-confidence results to remain flagged for review.
+Small local comparisons recovered confident 9s and 4s, while some 5s still
+required review. Intel performance and accuracy are not yet established.
+
+Quit the current preview before trying the experiment on the Intel MacBook:
+
+```sh
+.venv/bin/python -m scripts.run_compatibility_preview --fast-ocr
+```
+
+Its title includes "Fast OCR Experiment" and it uses a separate preview progress
+directory under `.preview-data/older-macos/`. Check the entry-order and mode button
+borders, import the same image, compare every recognized digit with the source,
+and report scan time, review count, and any incorrect digits. Confident Fast
+results still require every repeated copy to agree; existing conflict, retry,
+and review rules remain in effect.
+
+For a smaller diagnostic using the default Vision revision:
+
+```sh
+.venv/bin/python -m scripts.diagnose_ocr --fixture thin-digits --cells 3 5 8 --fast-first
+```
+
+The JSON identifies the experimental mode. Each reported attempt includes its
+Fast call and, when needed, its Accurate fallback in the same timing.
+
+Local validation on October 22, 2026: the full desktop-enabled suite passed
+**1,061 tests in 180.95 seconds** using the default app behavior. Ruff and Mypy
+also passed. Separate native checks exercised all seven real OCR fixture cases
+with the experimental reader and Vision revisions 2 and 3; every expected digit
+was preserved, with strict no-review fixture checks retained for revision 3.
 
 ## Local preview on macOS 27
 

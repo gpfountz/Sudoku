@@ -1696,6 +1696,31 @@ def test_help_dialog_hides_unneeded_scrollbar(native_controller: Any) -> None:
 
 @pytest.mark.parametrize("native_controller", [False, "legacy-button-insets"], indirect=True)
 @pytest.mark.parametrize("size", [(1040, 760), (1200, 640), (1440, 900)])
+@pytest.mark.parametrize("name", ["Default", "High Contrast"])
+def test_choice_button_bezels_fit_inside_their_control(
+    native_controller: Any, size: tuple[int, int], name: str
+) -> None:
+    """Keep the full Number First and Color edges inside their choice row and viewport."""
+    controller: Any = native_controller
+    controller.apply_theme(theme_for_name(name))
+    controller.window.setContentSize_(size)
+    controller.layout()
+    viewport: Any = controller.adaptive_layout.support_scroll.contentView()
+    for key in ("order", "mode"):
+        choices: Any = controller.controls[key]
+        for selected in range(len(choices.choice_buttons)):
+            choices.setSelectedSegment_(selected)
+            for button in choices.choice_buttons:
+                frame: Any = choices.convertRect_fromView_(button.bounds(), button)
+                assert AK.NSMinX(frame) >= -0.5, (key, button.title())
+                assert AK.NSMaxX(frame) <= choices.bounds().size.width + 0.5, (key, button.title())
+                frame = viewport.convertRect_fromView_(button.bounds(), button)
+                assert AK.NSMinX(frame) >= AK.NSMinX(viewport.bounds()) - 0.5, key
+                assert AK.NSMaxX(frame) <= AK.NSMaxX(viewport.bounds()) + 0.5, key
+
+
+@pytest.mark.parametrize("native_controller", [False, "legacy-button-insets"], indirect=True)
+@pytest.mark.parametrize("size", [(1040, 760), (1200, 640), (1440, 900)])
 def test_hint_button_bezels_fit_inside_the_scroll_view(
     native_controller: Any, size: tuple[int, int]
 ) -> None:

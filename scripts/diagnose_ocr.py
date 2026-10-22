@@ -18,6 +18,7 @@ from unittest.mock import Mock, patch
 
 import cv2
 
+from scripts.ocr_experiment import experimental_fast_ocr
 from sudoku import import_images
 from sudoku.engine import cell_name
 from sudoku.import_images import GridRegion, ImageArray
@@ -129,6 +130,11 @@ def main() -> None:
         action="store_true",
         help="Compare supported Vision algorithms without changing the app's defaults",
     )
+    parser.add_argument(
+        "--fast-first",
+        action="store_true",
+        help="Try the isolated Fast OCR experiment with Accurate fallback",
+    )
     arguments: argparse.Namespace = parser.parse_args()
     if any(index < 0 or index >= 81 for index in arguments.cells):
         parser.error("Cell indices must be between 0 and 80")
@@ -143,7 +149,7 @@ def main() -> None:
     glyphs: list[tuple[str, ImageArray | None]] = fixture_glyphs(arguments.fixture, arguments.cells)
     results: list[dict[str, Any]] = []
     for revision in revisions if arguments.compare_revisions else [None]:
-        with vision_revision(revision):
+        with vision_revision(revision), experimental_fast_ocr(arguments.fast_first):
             for name, glyph in glyphs:
                 result: dict[str, Any] = (
                     trace_digit(glyph)
@@ -159,6 +165,7 @@ def main() -> None:
         "python": sys.version.split()[0],
         "vision_request_revision": int(request.revision()),
         "supported_revisions": revisions,
+        "recognition_mode": "fast-first-experiment" if arguments.fast_first else "accurate",
         "packages": {
             name: metadata.version(name)
             for name in ("pyobjc-framework-Vision", "opencv-python-headless", "numpy")
