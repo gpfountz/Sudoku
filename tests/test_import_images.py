@@ -244,17 +244,22 @@ def test_native_font_recognition() -> None:
 
 
 @pytest.mark.skipif(os.environ.get("RUN_NATIVE_LAYOUT_TESTS") != "1", reason="Local Vision runtime")
-def test_bottom_eight_from_colored_screenshot() -> None:
+def test_bottom_eight_from_colored_screenshot(modern_vision_baseline: bool) -> None:
     """Recover the actual printed glyph that Vision misread as '8 g' in the initial layout."""
     path: Path = Path(__file__).parent / "fixtures" / "import-bottom-eight.png"
     patch: ImageArray | None = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
     assert patch is not None
-    assert recognize_digit(patch) == (8, False)
+    value: int
+    needs_review: bool
+    value, needs_review = recognize_digit(patch)
+    assert value == 8
+    if modern_vision_baseline:
+        assert not needs_review
 
 
 @pytest.mark.skipif(os.environ.get("RUN_NATIVE_LAYOUT_TESTS") != "1", reason="Local Vision runtime")
 @pytest.mark.parametrize("size", [None, 320, 480])
-def test_thin_digits_from_import_screenshot(size: int | None) -> None:
+def test_thin_digits_from_import_screenshot(size: int | None, modern_vision_baseline: bool) -> None:
     """Read every clue and blank, including four thin 8s and four 3s, from a real import."""
     path: Path = Path(__file__).parent / "fixtures" / "import-thin-digits.png"
     image: ImageArray = decode_image(read_image_file(path))
@@ -279,7 +284,9 @@ def test_thin_digits_from_import_screenshot(size: int | None) -> None:
     )
     recognized = recognize_grid(image, region)
     assert recognized.values == tuple(int(digit) for row in expected for digit in row)
-    assert not recognized.uncertain
+    assert all(recognized.values[index] != 0 for index in recognized.uncertain)
+    if modern_vision_baseline:
+        assert not recognized.uncertain
 
 
 @pytest.mark.parametrize(
@@ -289,6 +296,9 @@ def test_thin_digits_from_import_screenshot(size: int | None) -> None:
         ((0, 0.0), (8, 0.75), (8, 1.0), (8, True)),
         ((0, 0.0), (8, 1.0), (3, 1.0), (0, True)),
         ((8, 0.75), (3, 1.0), (3, 1.0), (8, True)),
+        ((9, 0.30), (9, 0.30), (9, 0.30), (9, True)),
+        ((4, 0.30), (4, 0.30), (4, 0.30), (4, True)),
+        ((5, 0.30), (5, 0.30), (5, 0.30), (5, True)),
     ],
 )
 def test_recognition_rechecks_preserve_uncertainty(
@@ -335,6 +345,7 @@ def test_compact_patch_preserves_glyph_and_vertical_padding() -> None:
         (((0, 0.0), (8, 1.0), (0, 0.0)), (8, 1.0), (8, 1.0), (8, False)),
         (((8, 0.75), (0, 0.0), (0, 0.0)), (8, 1.0), (8, 1.0), (8, False)),
         (((0, 0.0), (0, 0.0), (0, 0.0)), (8, 0.75), (8, 1.0), (8, True)),
+        (((0, 0.0), (0, 0.0), (0, 0.0)), (8, 0.50), (8, 1.0), (8, True)),
         (((0, 0.0), (0, 0.0), (0, 0.0)), (8, 1.0), (3, 1.0), (0, True)),
         (((0, 0.0), (0, 0.0), (0, 0.0)), (8, 1.0), (0, 0.0), (0, True)),
         (((3, 0.75), (0, 0.0), (0, 0.0)), (8, 1.0), (8, 1.0), (3, True)),

@@ -40,12 +40,37 @@ and 9 failed in 962.59 seconds**. The failures were:
 - Two active-digit menu badge checks: a hardcoded 24-point custom row enlarged
   Sequoia's 22-point native row by two points.
 
-The follow-up measures the native menu row before inserting the badge, retaining
+The follow-up at `199578f` measures the native menu row before inserting the badge, retaining
 the modern row size on macOS 27. A native regression model reproduces the shorter
 row. The synthetic dropdown test now waits for the menu row to appear and posts
-a hover followed by clicks using current event timestamps. These changes still
-need a targeted Sequoia rerun. OCR confidence thresholds remain unchanged while
-the diagnostic below collects evidence; the remaining manual checks are pending.
+a hover followed by clicks using current event timestamps. The Sequoia rerun
+reported **19 passed and 1 failed in 8.13 seconds**: the badge and other menu
+checks pass, but synthetic mouse selection still fails. The reported menu row
+was visible and had positive dimensions; manual mouse selection works.
+
+The next test adjustment positions the actual pointer over the target row and
+allows a tracking-loop iteration between hover and click, then restores the
+pointer. Whether that resolves older AppKit tracking still needs a Sequoia rerun.
+
+The Intel OCR traces use the same Python and package versions and Vision request
+revision 3 as the M4. For the bottom 8, only the compact patches were recognized,
+with confidence 0.50 and 1.00; the production rule correctly requires review
+because both must reach 0.85. The three thin-digit cells were read correctly as
+9, 4, and 5, each with confidence about 0.30 on all three attempts. They took
+about 1.72–2.20 seconds per cell, and the 8 took 2.97 seconds. These results do
+not establish whether OS version, hardware, or patched graphics caused the
+differences.
+
+Recognition settings and the 0.85 review threshold remain unchanged. The tests
+retain the strict no-review fixture expectations on macOS 27 and newer. On older
+systems they still require every digit and blank to match exactly, while allowing
+low-confidence results to require review. The image-import tests now confirm each
+flagged clue using its digit button, verify Play stays disabled until all flags
+are cleared, and preserve every recognized value. Separate decision tests replay
+the reported 0.30 and 0.50 confidence patterns. Only the two real image-import
+integration cases receive a 180-second wait per OCR phase, accommodating the
+measured Intel timings; other background-job waits remain 15 seconds. The full
+import duration and remaining manual visual checks still need Intel validation.
 
 These graphics diagnostics were also reported during launch:
 
@@ -150,6 +175,16 @@ RUN_NATIVE_LAYOUT_TESTS=1 .venv/bin/python -m pytest -q tests/test_native_layout
 .venv/bin/python -m scripts.diagnose_ocr
 .venv/bin/python -m scripts.diagnose_ocr --fixture thin-digits
 ```
+
+After collecting those traces, validate OCR and review with:
+
+```sh
+RUN_NATIVE_LAYOUT_TESTS=1 .venv/bin/python -m pytest -q tests/test_import_images.py tests/test_import_ui.py -k 'bottom_eight or thin_digits or uncertain_cell or recognition_rechecks or compact_recognition' --durations=6
+```
+
+The real image-import cases can take several minutes on the Intel MacBook. Keep
+the pointer still while running the synthetic menu test; it briefly moves and
+restores the pointer to exercise native tracking.
 
 The diagnostic prints JSON containing the OS, architecture, package versions,
 Vision request revision, recognized digits, confidence, and per-attempt timings.

@@ -49,13 +49,31 @@ def review(tmp_path: Path) -> Iterator[Any]:
     window.close()
 
 
-def finish_jobs(review: Any) -> None:
+def finish_jobs(review: Any, timeout: float = 15) -> None:
     """Drain native polling until all latest recognition or validation work completes."""
-    deadline: Any = NSDate.dateWithTimeIntervalSinceNow_(15)
+    deadline: Any = NSDate.dateWithTimeIntervalSinceNow_(timeout)
     while review.future is not None and deadline.timeIntervalSinceNow() > 0:
         NSRunLoop.currentRunLoop().runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(0.02))
         review.poll_(None)
-    assert review.future is None
+    assert review.future is None, (
+        f"Import job still running after {timeout}s: {review.controls['status'].stringValue()}"
+    )
+
+
+def confirm_flagged_clues(review: Any, expected: list[int]) -> None:
+    """Confirm each tentative clue through its digit button before Play can enable."""
+    pending: set[int] = set(review.uncertain)
+    for index in sorted(pending):
+        assert not review.controls["play"].isEnabled()
+        review.select_cell(index)
+        assert "Needs review" in str(review.controls["cell_label"].stringValue())
+        review.controls[f"digit{review.values[index]}"].performClick_(None)
+        finish_jobs(review)
+        pending.remove(index)
+        assert review.uncertain == pending
+        assert review.values == expected
+    assert not review.uncertain
+    assert review.controls["play"].isEnabled()
 
 
 def test_clipboard_reads_directly_and_uses_matched_difficulty(
@@ -87,21 +105,20 @@ def test_clipboard_reads_directly_and_uses_matched_difficulty(
     assert review.image is None
 
 
+@pytest.mark.parametrize("flagged_count", [1, 3])
 def test_uncertain_cell_must_be_corrected_or_confirmed(
-    review: Any, isolated_catalog: Catalog
+    review: Any, isolated_catalog: Catalog, flagged_count: int
 ) -> None:
     """Do not enable Play while a flagged digit has only mathematical validation."""
     clues: tuple[int, ...] = isolated_catalog["Easy"][0].givens
     review.values = list(clues)
-    review.uncertain = {0}
+    review.uncertain = {index for index, digit in enumerate(clues) if digit}
+    review.uncertain = set(sorted(review.uncertain)[:flagged_count])
     review.validated = validate_import(clues)
     review.update_play()
     assert not review.controls["play"].isEnabled()
-    review.select_cell(0)
-    review.edit_cell(clues[0])
-    finish_jobs(review)
-    assert not review.uncertain
-    assert review.controls["play"].isEnabled()
+    assert len(review.uncertain) == flagged_count
+    confirm_flagged_clues(review, list(clues))
 
 
 @pytest.mark.parametrize("played", [False, True])
@@ -246,7 +263,7 @@ def test_clipboard_and_file_pass_identical_image_bytes(
 
 @pytest.mark.parametrize("entry", ["clipboard", "file"])
 def test_thin_digits_reach_review_from_clipboard_and_file(
-    review: Any, monkeypatch: pytest.MonkeyPatch, entry: str
+    review: Any, monkeypatch: pytest.MonkeyPatch, entry: str, modern_vision_baseline: bool
 ) -> None:
     """Recover the screenshot's missed 8s through both real image-loading and OCR paths."""
     path: Path = Path(__file__).parent / "fixtures" / "import-thin-digits.png"
@@ -266,7 +283,9 @@ def test_thin_digits_reach_review_from_clipboard_and_file(
         panel.URL.return_value = NSURL.fileURLWithPath_(str(path))
         monkeypatch.setattr(AK, "NSOpenPanel", Mock(openPanel=Mock(return_value=panel)))
         review.chooseFile_(None)
-    finish_jobs(review)
+    # The Intel trace measured up to three seconds per clue, including retries.
+    # Bound this real-OCR integration wait separately from ordinary UI jobs.
+    finish_jobs(review, timeout=180)
     # The fixture retains the screenshot's corner handles. Select the original
     # board bounds explicitly, just as a user adjusts the four import corners.
     height: int
@@ -274,14 +293,15 @@ def test_thin_digits_reach_review_from_clipboard_and_file(
     height, width = review.image.shape[:2]
     review.corners = ((0, 0), (width - 1, 0), (width - 1, height - 1), (0, height - 1))
     review.readBoard_(None)
-    finish_jobs(review)
+    finish_jobs(review, timeout=180)
     expected: str = (
         "300914005105006000960000800013008400090432080002500360007000096000600708600257004"
     )
     assert review.values == list(map(int, expected))
-    assert not review.uncertain
+    if modern_vision_baseline:
+        assert not review.uncertain
     assert review.validated is not None
-    assert review.controls["play"].isEnabled()
+    confirm_flagged_clues(review, list(map(int, expected)))
 
 
 @pytest.mark.parametrize("oversized", [False, True])

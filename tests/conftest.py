@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from Foundation import NSProcessInfo
 
 from scripts.prepare_puzzles import prepare
 from sudoku.catalog import Catalog
@@ -19,6 +20,12 @@ from sudoku.puzzle_import import ValidatedImport, validate_import
 SOLUTION: tuple[int, ...] = tuple(
     ((row * 3 + row // 3 + column) % 9) + 1 for row in range(9) for column in range(9)
 )
+
+
+@pytest.fixture
+def modern_vision_baseline() -> bool:
+    """Retain unflagged fixture expectations on macOS 27; older OCR may require review."""
+    return bool(NSProcessInfo.processInfo().isOperatingSystemAtLeastVersion_((27, 0, 0)))
 
 
 @pytest.fixture

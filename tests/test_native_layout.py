@@ -15,6 +15,7 @@ from unittest.mock import Mock
 import AppKit as AK
 import objc
 import pytest
+import Quartz as Q
 from Foundation import NSProcessInfo, NSRunLoop, NSTimer
 
 from scripts.preview_hint_links import preview_game, preview_hint
@@ -1038,6 +1039,7 @@ def test_themed_dropdown_keeps_native_menu_selection(
     application: Any = AK.NSApplication.sharedApplication()
     controller.settings_window.makeKeyAndOrderFront_(None)
     event_state: dict[str, Any] = {}
+    original_cursor: Any = Q.CGEventGetLocation(Q.CGEventCreate(None))
 
     def select_dark(timer: Any) -> None:
         """Select Dark through actual events while the native menu tracks."""
@@ -1048,21 +1050,33 @@ def test_themed_dropdown_keeps_native_menu_selection(
             event_state["window_visible"] = bool(window and window.isVisible())
             if window is None or not window.isVisible() or row.bounds().size.width <= 0:
                 return
-            timer.invalidate()
             point: Any = row.convertPoint_toView_(
                 (row.bounds().size.width / 2, row.bounds().size.height / 2), None
             )
             event_state["click_point"] = str(point)
+            screen_point: Any = window.convertPointToScreen_(point)
+            display_height: float = float(AK.NSScreen.screens()[0].frame().size.height)
+            event_state["cursor_error"] = Q.CGWarpMouseCursorPosition(
+                (screen_point.x, display_height - screen_point.y)
+            )
+            content: Any = window.contentView()
+            event_state["hit_target"] = (
+                content.hitTest_(content.convertPoint_fromView_(point, None)) == row
+            )
             mouse_selector: str = (
                 "mouseEventWithType_location_modifierFlags_timestamp_windowNumber_"
                 "context_eventNumber_clickCount_pressure_"
             )
             mouse_factory: Any = getattr(AK.NSEvent, mouse_selector)
-            for event_type in (
-                AK.NSEventTypeMouseMoved,
-                AK.NSEventTypeLeftMouseDown,
-                AK.NSEventTypeLeftMouseUp,
-            ):
+            event_types: tuple[int, ...] = (
+                (AK.NSEventTypeLeftMouseDown, AK.NSEventTypeLeftMouseUp)
+                if event_state.get("hover_sent")
+                else (AK.NSEventTypeMouseMoved,)
+            )
+            if event_state.get("hover_sent"):
+                timer.invalidate()
+            event_state["hover_sent"] = True
+            for event_type in event_types:
                 mouse_event: Any = mouse_factory(
                     event_type,
                     point,
@@ -1112,6 +1126,8 @@ def test_themed_dropdown_keeps_native_menu_selection(
     finally:
         timer.invalidate()
         guard.invalidate()
+        if input_method == "mouse":
+            Q.CGWarpMouseCursorPosition(original_cursor)
         controller.settings_window.close()
 
 
