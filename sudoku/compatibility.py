@@ -2,10 +2,20 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # See LICENSE for license terms and the warranty disclaimer.
 
-"""Choose supported native presentation without limiting newer macOS features."""
+"""Choose validated native behavior without limiting newer macOS features."""
+
+import platform
 
 import AppKit as AK
 from Foundation import NSProcessInfo
+
+
+def prefers_fast_ocr() -> bool:
+    """Use the validated Fast-first reader for x86_64 processes on Sequoia."""
+    return (
+        platform.machine() == "x86_64"
+        and NSProcessInfo.processInfo().operatingSystemVersion()[0] == 15
+    )
 
 
 def supports_glass_buttons() -> bool:

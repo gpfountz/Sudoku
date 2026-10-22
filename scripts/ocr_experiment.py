@@ -2,46 +2,20 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # See LICENSE for license terms and the warranty disclaimer.
 
-"""Scope optional OCR experiments to source previews and diagnostic processes."""
+"""Force the validated Fast-first policy in source previews and diagnostics."""
 
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from unittest.mock import patch
 
-from sudoku import import_images
-from sudoku.import_images import MINIMUM_OCR_CONFIDENCE, ImageArray
+from sudoku import compatibility
 
 
 @contextmanager
 def experimental_fast_ocr(enabled: bool) -> Iterator[None]:
-    """Try confident Fast readings first, retaining Accurate fallback and review policy."""
+    """Force Fast-first when requested; otherwise retain the host's automatic policy."""
     if not enabled:
         yield
         return
-    original: Callable[..., tuple[int, float]] = import_images.recognize_repeated_digit
-    original_digit: Callable[..., tuple[int, bool]] = import_images.recognize_digit
-
-    def fast_then_accurate(source: ImageArray, copies: int) -> tuple[int, float]:
-        """Use Accurate recognition whenever Fast does not provide confident digits."""
-        digit: int
-        confidence: float
-        digit, confidence = original(
-            source,
-            copies,
-            recognition_level=int(import_images.V.VNRequestTextRecognitionLevelFast),
-        )
-        if digit and confidence >= MINIMUM_OCR_CONFIDENCE:
-            return digit, confidence
-        return original(source, copies)
-
-    def corroborate_digit(
-        source: ImageArray, *, corroborate_compact: bool = True
-    ) -> tuple[int, bool]:
-        """Seek a second confident compact reading when only one retry is confident."""
-        return original_digit(source, corroborate_compact=corroborate_compact)
-
-    with (
-        patch.object(import_images, "recognize_repeated_digit", fast_then_accurate),
-        patch.object(import_images, "recognize_digit", corroborate_digit),
-    ):
+    with patch.object(compatibility, "prefers_fast_ocr", return_value=True):
         yield

@@ -13,6 +13,23 @@ from sudoku import compatibility
 
 
 @pytest.mark.parametrize("major_version", [14, 15, 26, 27])
+@pytest.mark.parametrize("architecture", ["arm64", "x86_64"])
+def test_fast_ocr_targets_only_validated_intel_sequoia(
+    monkeypatch: pytest.MonkeyPatch, major_version: int, architecture: str
+) -> None:
+    """Keep modern and unverified combinations on their existing Accurate reader."""
+    process_info: Mock = Mock()
+    process_info.processInfo.return_value.operatingSystemVersion.return_value = (
+        major_version,
+        8,
+        1,
+    )
+    monkeypatch.setattr(compatibility, "NSProcessInfo", process_info)
+    monkeypatch.setattr(compatibility.platform, "machine", lambda: architecture)
+    assert compatibility.prefers_fast_ocr() is (major_version == 15 and architecture == "x86_64")
+
+
+@pytest.mark.parametrize("major_version", [14, 15, 26, 27])
 @pytest.mark.parametrize("bridge_has_glass", [False, True])
 @pytest.mark.parametrize("high_contrast", [False, True])
 def test_action_styles_respect_os_bridge_and_contrast(

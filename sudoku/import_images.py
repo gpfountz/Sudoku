@@ -17,6 +17,8 @@ import Vision as V
 from Foundation import NSData, NSDictionary
 from numpy.typing import NDArray
 
+from sudoku import compatibility
+
 ImageArray = NDArray[Any]
 Corners = tuple[tuple[float, float], ...]
 BOARD_SIZE: int = 900
@@ -235,6 +237,23 @@ def digit_patch(cell: ImageArray) -> ImageArray | None:
 def recognize_repeated_digit(
     patch: ImageArray, copies: int, *, recognition_level: int | None = None
 ) -> tuple[int, float]:
+    """Prefer confident Fast readings on Intel Sequoia, retaining Accurate fallback."""
+    if recognition_level is not None:
+        return read_repeated_digit(patch, copies, recognition_level)
+    if compatibility.prefers_fast_ocr():
+        digit: int
+        confidence: float
+        digit, confidence = read_repeated_digit(
+            patch, copies, int(V.VNRequestTextRecognitionLevelFast)
+        )
+        if digit and confidence >= MINIMUM_OCR_CONFIDENCE:
+            return digit, confidence
+    return read_repeated_digit(patch, copies, int(V.VNRequestTextRecognitionLevelAccurate))
+
+
+def read_repeated_digit(
+    patch: ImageArray, copies: int, recognition_level: int
+) -> tuple[int, float]:
     """Read a repeated source glyph, requiring all copies to agree on one digit."""
     # Vision's text detector can miss an isolated glyph. Repeating the same patch
     # provides a line of text without introducing any new source information.
@@ -242,9 +261,7 @@ def recognize_repeated_digit(
     cv2.putText(anchor, "AB", (8, 140), cv2.FONT_HERSHEY_SIMPLEX, 4.5, 0, 4, cv2.LINE_AA)
     line: ImageArray = np.concatenate((anchor, *([patch] * copies)), axis=1)
     request: Any = V.VNRecognizeTextRequest.alloc().init()
-    request.setRecognitionLevel_(
-        V.VNRequestTextRecognitionLevelAccurate if recognition_level is None else recognition_level
-    )
+    request.setRecognitionLevel_(recognition_level)
     request.setUsesLanguageCorrection_(False)
     request.setRecognitionLanguages_(["en-US"])
     handler: Any = V.VNImageRequestHandler.alloc().initWithCGImage_options_(
@@ -281,8 +298,12 @@ def compact_digit_patch(patch: ImageArray) -> ImageArray | None:
     return patch[:, left:right]
 
 
-def recognize_digit(patch: ImageArray, *, corroborate_compact: bool = False) -> tuple[int, bool]:
+def recognize_digit(
+    patch: ImageArray, *, corroborate_compact: bool | None = None
+) -> tuple[int, bool]:
     """Retry inconclusive OCR with varied counts and spacing, preserving conflicting readings."""
+    if corroborate_compact is None:
+        corroborate_compact = compatibility.prefers_fast_ocr()
     value: int
     confidence: float
     value, confidence = recognize_repeated_digit(patch, 3)

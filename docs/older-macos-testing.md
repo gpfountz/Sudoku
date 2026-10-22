@@ -381,9 +381,49 @@ RUN_NATIVE_LAYOUT_TESTS=1 .venv/bin/python -m pytest -q \
   tests/test_native_layout.py -k themed_dropdown --tb=short
 ```
 
-The full 20-minute Intel suite does not need to be repeated for this test-only
-repair before obtaining that targeted result. Normal older-macOS OCR integration
-remains the next code step after this validation gate.
+The maintainer's Intel rerun at `653b867` passed **4 tests, 438 deselected in
+5.84 seconds**. Combined with the preceding full run, this covers its sole
+failure; it is not a fresh full-suite run of the repaired revision. GitHub CI
+also passed for that exact commit.
+
+### Automatic OCR on Intel Sequoia
+
+The validated Fast-first reader now runs automatically for x86_64 processes on
+macOS 15. A confident Fast result can finish immediately; absent or weak Fast
+results still fall back to Accurate. The existing 0.85 confidence threshold,
+conflict guards, and compact corroboration requirement remain in place. The
+extra compact retry accepts the Intel 5 only after two confident agreeing compact
+readings. Both file and clipboard imports use this shared production reader.
+
+Apple Silicon and other macOS versions retain the Accurate path. Sonoma remains
+untested. The preview/diagnostic switches can force the same production policy
+on another host for comparison; the scripts no longer implement a separate OCR
+algorithm. Existing preview data directories remain separate, so omitting
+`--fast-ocr` opens the normal compatibility preview's saved progress.
+
+After pulling this change on the Intel Mac, quit the preview and use:
+
+```sh
+git pull --ff-only
+.venv/bin/python -m scripts.diagnose_ocr --fixture source-review
+.venv/bin/python -m scripts.run_compatibility_preview
+```
+
+The diagnostic should report `recognition_mode: fast-first` and
+`policy_selection: automatic`. Check file and clipboard import speed, recognized
+digits, and review flags against the previously validated Fast OCR preview.
+No OCR flag is needed for normal operation on Intel Sequoia.
+
+Local validation of this integration: **1,104 desktop-enabled tests passed in
+175.39 seconds** on the M4. The subsequent correction to use PyObjC's native OS
+version tuple passed all **42 policy/fallback tests**. All seven real OCR fixture
+cases passed with Fast-first forced under each of Vision revisions 2 and 3.
+The original `Untitled 2.jpg` also retained every expected clue and blank with
+both readers and revisions; revision 3 needed no review on the M4. These local
+algorithm comparisons do not emulate Intel hardware or Sequoia's frameworks.
+Both real clipboard and file import integration cases also passed with automatic
+Intel Sequoia policy selection simulated on the M4 (**2 passed in 3.20 seconds**).
+Ruff lint/formatting and Mypy passed.
 
 ## Local preview on macOS 27
 

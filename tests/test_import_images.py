@@ -397,7 +397,7 @@ def test_compact_recognition_requires_agreement(
         return {2: compact_pair, 3: compact_triple}[copies]
 
     monkeypatch.setattr(import_images, "recognize_repeated_digit", reading)
-    assert recognize_digit(patch) == expected
+    assert recognize_digit(patch, corroborate_compact=False) == expected
 
 
 @pytest.mark.parametrize("corroborate", [False, True])

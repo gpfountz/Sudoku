@@ -22,7 +22,7 @@ def main() -> None:
     parser.add_argument(
         "--fast-ocr",
         action="store_true",
-        help="Experiment with Fast OCR and Accurate fallback in a separate preview",
+        help="Force Fast-first on any host in a separate preview; automatic on Intel Sequoia",
     )
     arguments: argparse.Namespace = parser.parse_args()
     root: Path = Path(__file__).resolve().parents[1]

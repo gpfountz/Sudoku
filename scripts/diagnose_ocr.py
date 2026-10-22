@@ -151,7 +151,7 @@ def main() -> None:
     parser.add_argument(
         "--fast-first",
         action="store_true",
-        help="Try the isolated Fast OCR experiment with Accurate fallback",
+        help="Force Fast-first with Accurate fallback, regardless of the host's automatic policy",
     )
     arguments: argparse.Namespace = parser.parse_args()
     if any(index < 0 or index >= 81 for index in arguments.cells):
@@ -183,7 +183,12 @@ def main() -> None:
         "python": sys.version.split()[0],
         "vision_request_revision": int(request.revision()),
         "supported_revisions": revisions,
-        "recognition_mode": "fast-first-experiment" if arguments.fast_first else "accurate",
+        "recognition_mode": (
+            "fast-first"
+            if arguments.fast_first or import_images.compatibility.prefers_fast_ocr()
+            else "accurate"
+        ),
+        "policy_selection": "forced" if arguments.fast_first else "automatic",
         "packages": {
             name: metadata.version(name)
             for name in ("pyobjc-framework-Vision", "opencv-python-headless", "numpy")
