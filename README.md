@@ -35,7 +35,7 @@ See the [user guide](docs/user-guide.md) for controls, importing, daily games, a
   compatibility code is retained so support can be reconsidered after future testing.
 - **To run from source:** **Python 3.13+**; the pinned development setup was verified with Python 3.14.
 - **Development tools:** Git and Xcode or Command Line Tools. Optional local app builds require
-  **macOS SDK 27+**.
+  an SDK for the Mac's macOS major version or newer.
 
 For a fresh development setup, I recommend [Homebrew](https://brew.sh/) to install and manage
 Git and Python. First, install Apple's Xcode Command Line Tools if you do not already have them
@@ -72,9 +72,10 @@ Source launches use your normal Sudoku saves by default. See the
 
 This project is published as source; no prebuilt app is provided. You can build your own
 standalone `Sudoku.app`, which includes Python and the puzzle catalog.
-The current local builder targets **macOS 27 or newer on Apple Silicon**. Standalone
-Sequoia and Intel builds still need separate implementation and validation; the source-run
-requirement above does not change the existing bundle's deployment target.
+Use the same `./scripts/build_and_deploy.sh` command on Intel and Apple Silicon. It builds
+one app for the active Python architecture and the build Mac's macOS major version or newer:
+a Sequoia build targets 15+, while a macOS 27 build targets 27+ and retains its modern SDK.
+It does not produce cross-architecture or universal apps. Intel packaged-app validation is pending.
 
 Packaging requires stable **CPython 3.14.6 or newer within 3.14** and the pinned dependencies in
 `requirements-dev.txt`. Later 3.14 patches are accepted when their installed Python license text

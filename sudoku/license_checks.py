@@ -6,6 +6,7 @@
 
 import hashlib
 import json
+import platform
 import sys
 import sysconfig
 from importlib import metadata
@@ -37,7 +38,7 @@ class LicenseInventory(TypedDict):
 
     versions: dict[str, str]
     notices: list[NoticeRecord]
-    bundled_libraries: list[LibraryRecord]
+    bundled_libraries: dict[str, list[LibraryRecord]]
 
 
 def verify_notice_files(directory: Path = LICENSES) -> LicenseInventory:
@@ -95,17 +96,19 @@ def verify_build_licenses() -> None:
                 f"Review and refresh the license inventory for {name}: "
                 f"expected {expected}, installed {actual}. See docs/licensing.md."
             )
+    architecture: str = platform.machine()
+    if architecture not in inventory["bundled_libraries"]:
+        raise ValueError(f"Review the native library inventory for architecture {architecture}.")
+    libraries: list[LibraryRecord] = inventory["bundled_libraries"][architecture]
     for name, package in (("opencv-python-headless", "cv2"), ("numpy", "numpy")):
         directory: Path = Path(str(metadata.distribution(name).locate_file(package))) / ".dylibs"
         expected_files: set[str] = {
-            library["file"]
-            for library in inventory["bundled_libraries"]
-            if library["package"] == name
+            library["file"] for library in libraries if library["package"] == name
         }
         actual_files: set[str] = {path.name for path in directory.glob("*") if path.is_file()}
         if actual_files != expected_files:
             raise ValueError(f"Review the changed native library inventory for {name}.")
-    for library in inventory["bundled_libraries"]:
+    for library in libraries:
         distribution: metadata.Distribution = metadata.distribution(library["package"])
         package_name: str = "cv2" if library["package"] == "opencv-python-headless" else "numpy"
         path: Path = Path(str(distribution.locate_file(package_name))) / ".dylibs" / library["file"]

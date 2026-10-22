@@ -56,7 +56,9 @@ For local packaging, the recorded Python version is the minimum reviewed patch: 
 CPython 3.14.6 and newer within 3.14 are accepted when the installed `lib/python3.14/LICENSE.txt`
 matches the reviewed notice byte for byte. Older patches, prereleases, other minor versions,
 and other implementations are rejected. All other inventoried versions remain exact requirements;
-notice checksums and native-library membership and hashes remain enforced.
+notice checksums and architecture-specific native-library membership and hashes remain enforced.
+The inventory keeps separate `arm64` and `x86_64` library records; an unreviewed architecture is rejected.
+The [Intel wheel review](intel-packaging-review.md) records the added wheel identities and checks.
 
 On October 19, 2026, the installed Homebrew CPython 3.14.8 (`3.14.8_2`) root `LICENSE` and
 standard-library `LICENSE.txt` both matched the recorded Python 3.14.6 notice exactly, with SHA-256

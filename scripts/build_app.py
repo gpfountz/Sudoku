@@ -7,11 +7,14 @@
 import argparse
 import json
 import os
+import platform
+import plistlib
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib.resources import files
 from pathlib import Path
@@ -21,16 +24,41 @@ from sudoku.license_checks import verify_build_licenses, verify_packaged_license
 from sudoku.version import APP_VERSION
 
 ROOT: Path = Path(__file__).resolve().parents[1]
-MINIMUM_MACOS_VERSION: str = "27.0"
+MINIMUM_MACOS_VERSION: str = "15.0"
 
 
-def build_launcher(destination: Path) -> str:
-    """Compile py2app's launcher with the selected modern SDK, leaving py2app untouched."""
+@dataclass(frozen=True)
+class BuildTarget:
+    """Describe one native build, preserving the host's SDK-era AppKit behavior."""
+
+    architecture: str
+    minimum_macos: str
+    sdk: str
+    host_macos: str
+
+
+def native_build_target() -> BuildTarget:
+    """Choose the interpreter architecture and host major release without cross-compiling."""
+    architecture: str = platform.machine()
+    host: str = platform.mac_ver()[0]
+    if platform.system() != "Darwin" or architecture not in {"arm64", "x86_64"}:
+        raise RuntimeError("Build Sudoku on macOS with an arm64 or x86_64 Python environment.")
+    major: int = int(host.split(".")[0])
+    if major < int(MINIMUM_MACOS_VERSION.split(".")[0]):
+        raise RuntimeError("Building Sudoku requires macOS Sequoia 15 or newer.")
     sdk: str = subprocess.check_output(
         ["xcrun", "--sdk", "macosx", "--show-sdk-version"], text=True
     ).strip()
-    if int(sdk.split(".")[0]) < 27:
-        raise RuntimeError("Building Sudoku requires macOS SDK 27 or newer.")
+    if int(sdk.split(".")[0]) < major:
+        raise RuntimeError(
+            f"Building on macOS {major} requires macOS SDK {major} or newer; selected {sdk}. "
+            "Update or select compatible Xcode or Command Line Tools."
+        )
+    return BuildTarget(architecture, f"{major}.0", sdk, host)
+
+
+def build_launcher(destination: Path, target: BuildTarget) -> None:
+    """Compile a native launcher with the selected SDK, leaving py2app untouched."""
     source: Path = Path(str(files("py2app.apptemplate").joinpath("src/main.c")))
     subprocess.run(
         [
@@ -39,8 +67,8 @@ def build_launcher(destination: Path) -> str:
             "macosx",
             "clang",
             "-arch",
-            "arm64",
-            f"-mmacosx-version-min={MINIMUM_MACOS_VERSION}",
+            target.architecture,
+            f"-mmacosx-version-min={target.minimum_macos}",
             str(source),
             "-o",
             str(destination),
@@ -49,24 +77,91 @@ def build_launcher(destination: Path) -> str:
         ],
         check=True,
     )
-    verify_launcher_sdk(destination, sdk)
-    return sdk
+    verify_launcher_sdk(destination, target)
 
 
-def verify_launcher_sdk(executable: Path, expected: str) -> None:
-    """Require the selected SDK and macOS 27 deployment target in the launcher."""
+def verify_launcher_sdk(executable: Path, target: BuildTarget) -> None:
+    """Require the selected SDK, architecture, and deployment target in the launcher."""
     commands: str = subprocess.check_output(
         ["xcrun", "vtool", "-show-build", str(executable)], text=True
     )
     versions: list[str] = re.findall(r"^\s*sdk\s+(\S+)", commands, re.MULTILINE)
-    if versions != [expected]:
-        raise RuntimeError(f"Launcher SDK mismatch: expected {expected}, found {versions}")
+    if versions != [target.sdk]:
+        raise RuntimeError(f"Launcher SDK mismatch: expected {target.sdk}, found {versions}")
     minimum_versions: list[str] = re.findall(r"^\s*minos\s+(\S+)", commands, re.MULTILINE)
-    if minimum_versions != [MINIMUM_MACOS_VERSION]:
+    if minimum_versions != [target.minimum_macos]:
         raise RuntimeError(
-            f"Launcher minimum macOS mismatch: expected {MINIMUM_MACOS_VERSION}, "
+            f"Launcher minimum macOS mismatch: expected {target.minimum_macos}, "
             f"found {minimum_versions}"
         )
+    architectures: list[str] = subprocess.check_output(
+        ["lipo", "-archs", str(executable)], text=True
+    ).split()
+    if architectures != [target.architecture]:
+        raise RuntimeError(f"Launcher architecture mismatch: {architectures}")
+
+
+def verify_native_payload(bundle: Path, target: BuildTarget) -> None:
+    """Check every Mach-O payload slice against the app's advertised native target."""
+    with (bundle / "Contents/Info.plist").open("rb") as stream:
+        information: dict[str, object] = plistlib.load(stream)
+    if information.get("LSMinimumSystemVersion") != target.minimum_macos:
+        raise RuntimeError("Bundle minimum macOS differs from the launcher target.")
+    magic_numbers: set[bytes] = {
+        bytes.fromhex(value)
+        for value in (
+            "feedface",
+            "cefaedfe",
+            "feedfacf",
+            "cffaedfe",
+            "cafebabe",
+            "bebafeca",
+            "cafebabf",
+            "bfbafeca",
+        )
+    }
+    visited: set[Path] = set()
+    for path in bundle.rglob("*"):
+        if not path.is_file() or path.resolve() in visited:
+            continue
+        visited.add(path.resolve())
+        with path.open("rb") as stream:
+            if stream.read(4) not in magic_numbers:
+                continue
+        verify_native_binary(path, target)
+
+
+def verify_native_binary(path: Path, target: BuildTarget) -> None:
+    """Reject missing native slices or dependencies requiring a newer macOS than advertised."""
+    architectures: list[str] = subprocess.check_output(
+        ["lipo", "-archs", str(path)], text=True
+    ).split()
+    if target.architecture not in architectures:
+        raise RuntimeError(f"Missing {target.architecture} slice in {path}")
+    commands: str = subprocess.check_output(
+        ["otool", "-arch", target.architecture, "-l", str(path)], text=True
+    )
+    minimums: list[tuple[str, str]] = re.findall(
+        r"cmd LC_BUILD_VERSION\b(?:(?!\nLoad command).)*?\bminos\s+(\S+)"
+        r"|cmd LC_VERSION_MIN_MACOSX\b(?:(?!\nLoad command).)*?\bversion\s+(\S+)",
+        commands,
+        re.DOTALL,
+    )
+    if not minimums:
+        raise RuntimeError(f"Missing macOS deployment metadata in {path}")
+    for modern, legacy in minimums:
+        minimum: str = modern or legacy
+        if macos_version_tuple(minimum) > macos_version_tuple(target.minimum_macos):
+            raise RuntimeError(
+                f"{path} requires macOS {minimum}, above the app's {target.minimum_macos} target. "
+                "Use a Python environment and dependencies compatible with this Mac."
+            )
+
+
+def macos_version_tuple(version: str) -> tuple[int, ...]:
+    """Normalize omitted minor and patch numbers for deployment-target comparisons."""
+    parts: list[int] = [int(part) for part in version.split(".")]
+    return tuple((parts + [0, 0])[:3])
 
 
 def verify_bundle(bundle: Path) -> None:
@@ -108,7 +203,7 @@ def remove_duplicate_catalog(bundle: Path) -> None:
     subprocess.run(["codesign", "--force", "--sign", "-", str(bundle)], check=True)
 
 
-def write_build_info(bundle: Path) -> None:
+def write_build_info(bundle: Path, target: BuildTarget) -> None:
     """Record the runtime and source identity inside the bundle before it is signed."""
     commit: str = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     status: str = subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True)
@@ -119,6 +214,10 @@ def write_build_info(bundle: Path) -> None:
         "git_commit": commit,
         "git_dirty": bool(status.strip()),
         "built_at_utc": datetime.now(UTC).isoformat(),
+        "architecture": target.architecture,
+        "minimum_macos": target.minimum_macos,
+        "sdk_version": target.sdk,
+        "build_macos": target.host_macos,
     }
     destination: Path = bundle / "Contents/Resources/build-info.json"
     destination.write_text(json.dumps(information, indent=2) + "\n", encoding="utf-8")
@@ -178,14 +277,20 @@ def main() -> None:
     output: Path = prepare_directory(arguments.output_dir)
     verify_artifact_paths(output)
     verify_build_licenses()
+    target: BuildTarget = native_build_target()
+    print(
+        f"Building {target.architecture} for macOS {target.minimum_macos}+ with SDK {target.sdk}",
+        flush=True,
+    )
     with tempfile.TemporaryDirectory(prefix="sudoku-build-") as temporary:
         staging: Path = Path(temporary)
         launcher: Path = staging / "Sudoku-launcher"
-        sdk: str = build_launcher(launcher)
+        build_launcher(launcher, target)
         stage_catalog(staging / "catalog")
         environment: dict[str, str] = {
             **os.environ,
             "SUDOKU_BUILD_CATALOG": str(staging / "catalog"),
+            "MACOSX_DEPLOYMENT_TARGET": target.minimum_macos,
         }
         subprocess.run(
             [
@@ -197,7 +302,7 @@ def main() -> None:
                 "--dist-dir",
                 str(staging / "dist"),
                 "--arch",
-                "arm64",
+                target.architecture,
             ],
             cwd=ROOT,
             env=environment,
@@ -207,8 +312,9 @@ def main() -> None:
         executable: Path = bundle / "Contents/MacOS/Sudoku"
         shutil.copy2(launcher, executable)
         subprocess.run(["codesign", "--force", "--sign", "-", str(executable)], check=True)
-        verify_launcher_sdk(executable, sdk)
-        write_build_info(bundle)
+        verify_launcher_sdk(executable, target)
+        verify_native_payload(bundle, target)
+        write_build_info(bundle, target)
         remove_duplicate_catalog(bundle)
         verify_packaged_licenses(bundle)
         verify_bundle(bundle)
@@ -225,7 +331,9 @@ def main() -> None:
             check=True,
         )
         publish_build(staging, output)
-        print(f"Built {output / 'Sudoku.app'} with macOS SDK {sdk}")
+        print(
+            f"Built {output / 'Sudoku.app'} ({target.architecture}, macOS {target.minimum_macos}+)"
+        )
 
 
 if __name__ == "__main__":

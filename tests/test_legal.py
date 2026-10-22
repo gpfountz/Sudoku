@@ -4,6 +4,7 @@
 
 """Verify offline legal resources and release checks against missing or changed notices."""
 
+import platform
 import shutil
 import sys
 import sysconfig
@@ -99,7 +100,7 @@ def test_dependency_version_change_requires_notice_review(monkeypatch: pytest.Mo
     inventory: LicenseInventory = {
         "versions": {"opencv-python-headless": "5.0.0.93"},
         "notices": [],
-        "bundled_libraries": [],
+        "bundled_libraries": {platform.machine(): []},
     }
     monkeypatch.setattr("sudoku.license_checks.verify_notice_files", lambda: inventory)
     monkeypatch.setattr(metadata, "version", lambda name: "999.0")
@@ -168,9 +169,10 @@ def test_changed_or_missing_installed_python_notice_blocks_build(
             verify_python_build("3.14.6")
 
 
-@pytest.mark.parametrize("change", ["none", "version", "library", "hash"])
+@pytest.mark.parametrize("architecture", ["arm64", "x86_64"])
+@pytest.mark.parametrize("change", ["none", "version", "library", "hash", "architecture"])
 def test_python_patch_acceptance_preserves_dependency_guards(
-    installed_python_notice: Path, monkeypatch: pytest.MonkeyPatch, change: str
+    installed_python_notice: Path, monkeypatch: pytest.MonkeyPatch, change: str, architecture: str
 ) -> None:
     """Continue checking dependency versions, native-library membership, and bytes after upgrade."""
     directory: Path = installed_python_notice.parent
@@ -180,17 +182,22 @@ def test_python_patch_acceptance_preserves_dependency_guards(
     inventory: LicenseInventory = {
         "versions": {"Python": "3.14.6", "opencv-python-headless": "5.0.0.93"},
         "notices": [],
-        "bundled_libraries": [
-            {
-                "package": "opencv-python-headless",
-                "file": "native.dylib",
-                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-            }
-        ],
+        "bundled_libraries": {
+            architecture: [
+                {
+                    "package": "opencv-python-headless",
+                    "file": "native.dylib",
+                    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                }
+            ]
+        },
     }
     if change == "library":
         (libraries / "extra.dylib").write_bytes(b"extra")
     monkeypatch.setattr(sys, "version_info", (3, 14, 8, "final", 0))
+    monkeypatch.setattr(
+        platform, "machine", lambda: "unknown" if change == "architecture" else architecture
+    )
     monkeypatch.setattr("sudoku.license_checks.verify_notice_files", lambda: inventory)
     monkeypatch.setattr(
         metadata, "version", lambda name: "999" if change == "version" else "5.0.0.93"

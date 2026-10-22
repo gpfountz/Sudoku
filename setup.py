@@ -53,7 +53,7 @@ setup(
                 "CFBundleDisplayName": "Sudoku",
                 "CFBundleIdentifier": "com.pfountz.sudoku",
                 "NSHumanReadableCopyright": "Copyright © 2026 Greg Pfountz",
-                "LSMinimumSystemVersion": "27.0",
+                "LSMinimumSystemVersion": os.environ.get("MACOSX_DEPLOYMENT_TARGET", "15.0"),
                 "CFBundleShortVersionString": APP_VERSION,
                 "CFBundleVersion": "24",
                 "NSHighResolutionCapable": True,

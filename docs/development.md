@@ -21,10 +21,11 @@ Sonoma 14 is untested and outside the current supported range. Compatibility gua
 fallbacks are retained; revisit testing and the documented minimum if a Sonoma tester becomes
 available. This support policy does not introduce a runtime block on Sonoma.
 
-The current standalone builder still targets **macOS 27 or newer on Apple Silicon** and
-requires **macOS SDK 27 or newer**. Extending local bundles to Sequoia and Intel is separate
-work. The standalone app includes its Python runtime; Python is needed to run the source
-and to build the bundle.
+The standalone builder selects the active Python architecture (`arm64` or `x86_64`) and
+targets the build Mac's macOS major version or newer. Run it in a native Python environment
+on each Mac. It requires an SDK for that macOS major version or newer, preserving modern
+SDK behavior on macOS 27. The app includes Python; Python is needed to run the source and
+to build the bundle. The Intel packaged app still needs validation on the Sequoia Mac.
 
 The distribution is `pfountz-sudoku`; the import package and command are `sudoku`. Python 3.13 or
 newer is required, and the current source was verified with Python 3.14.8. Application logic is
@@ -60,6 +61,8 @@ Each build includes `Contents/Resources/build-info.json` inside `Sudoku.app`, wi
 `build-info.json` beside `Sudoku.zip`. The metadata records the application version from
 `sudoku/version.py`, exact Python version and implementation, Git commit, whether tracked or
 untracked source changes are present (excluding ignored files), and an ISO 8601 UTC build timestamp.
+It also records the build architecture, minimum macOS version, selected SDK version, and build
+Mac's macOS version.
 It is written before signing and archiving; it does not claim an uncommitted checkout matches the
 recorded commit. Git must be available and the build must run from a Git checkout.
 
@@ -190,14 +193,22 @@ puzzle progress. The board's `Background` object draws the themed surface.
 ## Building and installing
 
 Use the exact [packaging Python](#packaging-python) and current `requirements-dev.txt` before building.
-The build requires Xcode or Command Line Tools with macOS SDK 27 or newer. From the project directory:
+Use the same command on every supported Mac. Xcode or Command Line Tools must provide an SDK
+for the build Mac's macOS major version or newer. From the project directory:
 
 ```sh
 .venv/bin/python -m sudoku.license_checks
 ./scripts/build_and_deploy.sh
 ```
 
-Local packaging verifies the included license notices against the reviewed dependency versions.
+Each run produces one native app and ZIP using the active Python architecture; it does not
+cross-compile or create a universal app. The deployment target matches the build Mac's major
+release: Intel Sequoia builds target macOS 15+, and M4 macOS 27 builds target macOS 27+.
+Build on each Mac for local use. Copying the M4 app to Sequoia does not make it compatible.
+The script prints the selected architecture, minimum macOS, and SDK before building.
+
+Local packaging verifies the included license notices against the reviewed dependency versions
+and the exact native-library inventory for the active architecture.
 See the [licensing guide](licensing.md#publishing-a-standalone-app) before publishing any binary;
 the current OpenCV wheel has an unresolved native-library provenance issue. A successful local
 build or installation does not clear that release requirement.
@@ -236,10 +247,13 @@ as complete filesystem packages, preserving OpenCV's dynamically loaded extensio
 files. The build packages the active catalog generation and removes duplicate catalog resources.
 `setup.py` uses dependencies already installed from the project metadata.
 
-Use `scripts/build_app.py` for release builds. It recompiles py2app's launcher for Apple Silicon
-with the selected SDK, checks the macOS 27 deployment target, signs the finished bundle, and verifies
-its signature. Direct `setup.py py2app` builds omit this launcher replacement and can use legacy
-AppKit appearance. `scripts/create_icon.py` renders the code-defined icon with Cocoa.
+The shared shell command calls `scripts/build_app.py`. It recompiles py2app's launcher for the
+selected native architecture and SDK, checks its deployment target against the app plist, and
+checks every bundled Mach-O binary for the required architecture and a compatible minimum macOS.
+A Python runtime or dependency requiring a newer macOS stops the build before installation.
+It signs the finished bundle and verifies its signature. Direct `setup.py py2app` builds omit
+this launcher replacement and can use legacy AppKit appearance. `scripts/create_icon.py` renders
+the code-defined icon with Cocoa.
 
 For catalog conversion, data backups, resource checks, and packaged save/resume testing, see
 [catalog maintenance and recovery](../SQLITE_MIGRATION.md). Source validation alone does not verify
