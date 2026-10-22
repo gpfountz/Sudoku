@@ -1117,16 +1117,17 @@ def test_themed_dropdown_keeps_native_menu_selection(
     original_cursor: Any = Q.CGEventGetLocation(Q.CGEventCreate(None))
 
     def select_dark(timer: Any) -> None:
-        """Select Dark through actual events while the native menu tracks."""
+        """Dispatch mouse events immediately and queue keyboard events during native tracking."""
+        event_state["input_timer_fired"] = True
+        row: Any = popup.itemWithTitle_("Dark").view()
+        window: Any = row.window()
+        event_state["row_frame"] = str(row.frame())
+        event_state["window_visible"] = bool(window and window.isVisible())
+        event_state["application_active"] = bool(application.isActive())
+        event_state["settings_key"] = bool(controller.settings_window.isKeyWindow())
+        if window is None or not window.isVisible() or row.bounds().size.width <= 0:
+            return
         if input_method == "mouse":
-            row: Any = popup.itemWithTitle_("Dark").view()
-            window: Any = row.window()
-            event_state["row_frame"] = str(row.frame())
-            event_state["window_visible"] = bool(window and window.isVisible())
-            event_state["application_active"] = bool(application.isActive())
-            event_state["settings_key"] = bool(controller.settings_window.isKeyWindow())
-            if window is None or not window.isVisible() or row.bounds().size.width <= 0:
-                return
             point: Any = row.convertPoint_toView_(
                 (row.bounds().size.width / 2, row.bounds().size.height / 2), None
             )
@@ -1181,7 +1182,7 @@ def test_themed_dropdown_keeps_native_menu_selection(
                 0 if phase == "hover" else 1,
                 1 if phase == "press" else 0,
             )
-            application.postEvent_atStart_(mouse_event, False)
+            application.sendEvent_(mouse_event)
             return
         timer.invalidate()
         event_selector: str = (
@@ -1189,12 +1190,12 @@ def test_themed_dropdown_keeps_native_menu_selection(
             "characters_charactersIgnoringModifiers_isARepeat_keyCode_"
         )
         event_factory: Any = getattr(AK.NSEvent, event_selector)
-        for code, characters in ((125, "\uf701"), (36, "\r")):
+        for code, characters in ((2, "d"), (36, "\r")):
             key_event: Any = event_factory(
                 AK.NSEventTypeKeyDown,
                 (0, 0),
-                AK.NSEventModifierFlagFunction if code == 125 else 0,
                 0,
+                NSProcessInfo.processInfo().systemUptime(),
                 controller.settings_window.windowNumber(),
                 None,
                 characters,
@@ -1204,12 +1205,8 @@ def test_themed_dropdown_keeps_native_menu_selection(
             )
             application.postEvent_atStart_(key_event, False)
 
-    timer: Any = NSTimer.timerWithTimeInterval_repeats_block_(0.05, True, select_dark)
-    guard: Any = NSTimer.timerWithTimeInterval_repeats_block_(
-        3, False, lambda timer: popup.menu().cancelTracking()
-    )
-    for scheduled in (timer, guard):
-        NSRunLoop.mainRunLoop().addTimer_forMode_(scheduled, AK.NSEventTrackingRunLoopMode)
+    timer: Any = None
+    guard: Any = None
     try:
         discard_menu_test_input(application)
         if start_inactive:
@@ -1231,14 +1228,22 @@ def test_themed_dropdown_keeps_native_menu_selection(
         event_state["pre_menu_settings_key"] = bool(controller.settings_window.isKeyWindow())
         assert focused, json.dumps(event_state, indent=2, sort_keys=True)
         discard_menu_test_input(application)
+        timer = NSTimer.timerWithTimeInterval_repeats_block_(0.05, True, select_dark)
+        guard = NSTimer.timerWithTimeInterval_repeats_block_(
+            3, False, lambda timer: popup.menu().cancelTracking()
+        )
+        for scheduled in (timer, guard):
+            NSRunLoop.mainRunLoop().addTimer_forMode_(scheduled, AK.NSEventTrackingRunLoopMode)
         popup.performClick_(None)
         assert popup.titleOfSelectedItem() == controller.preferences.appearance == "Dark", (
             json.dumps(event_state, indent=2, sort_keys=True)
         )
         assert controller.save.call_count == 1
     finally:
-        timer.invalidate()
-        guard.invalidate()
+        if timer is not None:
+            timer.invalidate()
+        if guard is not None:
+            guard.invalidate()
         if input_method == "mouse":
             Q.CGWarpMouseCursorPosition(original_cursor)
         controller.settings_window.close()

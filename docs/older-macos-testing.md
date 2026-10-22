@@ -480,6 +480,42 @@ git pull --ff-only
 RUN_NATIVE_LAYOUT_TESTS=1 .venv/bin/python -m pytest -q tests/test_native_layout.py --tb=short
 ```
 
+### Intel focus result and native application dispatch
+
+The Intel native-layout rerun at `2014724` reported **441 passed and one failed
+in 130.15 seconds**. The same first mouse case failed even though both the app
+and Settings had focus before opening and throughout the recorded gesture. This
+rules out inactive focus as the cause of that failure. GitHub CI passed for
+`2014724`; its local and CI results did not establish an Intel fix.
+
+The revised mouse test dispatches its generated events immediately through
+`NSApplication.sendEvent_`, which routes them to the open menu's native window
+and hit-tested view. It does not call the row action or select a value directly.
+The exact Dark preference and one-save assertions remain. Keyboard selection
+still uses the application's native menu event queue, typing the unique initial
+`d` followed by Return instead of assuming which item is initially highlighted.
+Both methods wait for the target menu view to be visible, and keyboard events
+now use current uptime timestamps, matching the mouse events.
+
+The selection and cancellation timers are created only after focus setup, so
+that setup cannot consume their deadlines before the menu opens. Active/key
+state checks, pointer diagnostics, cursor restoration, and queue cleanup remain.
+Application code and OCR policy are unchanged.
+
+This narrows the mouse check to native application/window dispatch and preference
+handling; it does not validate WindowServer mouse capture or queued mouse-event
+tracking. The maintainer previously confirmed physical mouse selection works on
+Intel. Keyboard queue integration and mouse application dispatch are validated
+separately. Intel validation of the revised test remains pending.
+
+Final M4 validation of the retained application-dispatch implementation:
+**40 repeated native/rounded cases passed in 22.74 seconds**, and the full
+native-layout file passed **442 tests in 63.84 seconds**. Ruff lint/formatting,
+Mypy, and diff whitespace checks passed. Earlier alternate harness experiments
+also exposed a first-keyboard selection failure and one narrow glass-label
+assertion; those experiments were discarded, the three glass-label cases passed
+in isolation, and the final retained suite passed without application changes.
+
 ## Local preview on macOS 27
 
 From this checkout, launch either preview:
