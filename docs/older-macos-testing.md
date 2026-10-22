@@ -5,7 +5,8 @@ Branch: `codex/feature-older-macos-support`.
 This step adds native rounded-button fallbacks for older systems while retaining
 glass on macOS 26 and newer. High Contrast keeps its opaque controls. Standalone
 packaging still targets macOS 27 and Apple Silicon; run this experiment from
-source. Sonoma remains unverified, and Intel Sequoia testing is in progress.
+source. Source regression validation has passed on the tested Intel Sequoia/OCLP
+setup. Sonoma remains unverified; remaining hands-on checks are listed below.
 
 Local automated validation on October 21, 2026, using the M4 on macOS 27.0.1
 and CPython 3.14.8: the complete desktop-enabled suite passed **1,021 tests**.
@@ -506,7 +507,7 @@ This narrows the mouse check to native application/window dispatch and preferenc
 handling; it does not validate WindowServer mouse capture or queued mouse-event
 tracking. The maintainer previously confirmed physical mouse selection works on
 Intel. Keyboard queue integration and mouse application dispatch are validated
-separately. Intel validation of the revised test remains pending.
+separately.
 
 Final M4 validation of the retained application-dispatch implementation:
 **40 repeated native/rounded cases passed in 22.74 seconds**, and the full
@@ -515,6 +516,19 @@ Mypy, and diff whitespace checks passed. Earlier alternate harness experiments
 also exposed a first-keyboard selection failure and one narrow glass-label
 assertion; those experiments were discarded, the three glass-label cases passed
 in isolation, and the final retained suite passed without application changes.
+
+The maintainer's Intel rerun at **`2438e9b` (1.1.15)** passed the entire
+native-layout file: **442 passed in 124.17 seconds (2 minutes 4 seconds)**.
+GitHub CI also passed for that exact commit. Together with the earlier full
+Intel run's 1,103 passing tests at `7ec9359`, this covers all reported automated
+failures. It is not a fresh full-suite run at `2438e9b`; application logic and OCR
+policy were unchanged between those revisions.
+
+This completes the automated source-validation milestone on the tested Intel
+Sequoia/OCLP configuration. Remaining hands-on checks, the unexplained startup
+graphics messages, Sonoma validation, and older-system standalone packaging are
+separate outstanding items. No further Intel regression rerun is needed for the
+documentation update recording this result.
 
 ## Local preview on macOS 27
 
