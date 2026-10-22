@@ -311,6 +311,36 @@ of Vision revisions 2 and 3, retaining strict modern no-review expectations.
 All 81 values in the original JPEG still match with both readers and both
 revisions. Ruff lint and formatting and Mypy passed.
 
+The Intel follow-up at `11d63aa` confirmed the 5 now clears review: compact
+three-copy and four-copy readings both returned 5 at confidence 1.00. Its total
+time was 3.1712 seconds. The 9 remained accepted in 0.6141 seconds; the 3 still
+required review at confidence about 0.30 in 2.2071 seconds. The maintainer then
+reported that the full import worked, while identifying the enabled Play
+button's unreadable black text on its blue background. That report does not
+establish that every clue was accepted automatically.
+
+### Import Play contrast
+
+Play is the import window's Return-key default button and receives a native
+accented background when enabled. The import's generic action styling assigned
+it ordinary text. Active-window rounded-control previews reproduced black on
+blue in Light High Contrast and white on yellow in Dark High Contrast.
+
+Play now uses the theme's selected-button text while enabled and ordinary text
+while disabled. Its title refreshes when clue review changes its enabled state
+and when a theme is applied. Native bezel styles, accent rendering, Return-key
+behavior, and the callback are preserved.
+
+Local validation passed **29 native import-window tests in 7.69 seconds**.
+The regression failed before the fix and now checks every theme in Light and
+Dark, with both OS-selected and forced rounded controls, repeated enabled-state
+changes, and reapplying a theme to an enabled Play button. Active-window visual
+checks covered enabled and disabled Play in Default, High Contrast, and Default
+Teal in both appearances. Intel visual confirmation remains pending.
+All **112 theme tests** also passed, including the palette contrast checks;
+Ruff lint and formatting and Mypy passed. The full desktop suite was not repeated
+for this import-only styling change.
+
 ## Local preview on macOS 27
 
 From this checkout, launch either preview:

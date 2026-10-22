@@ -434,6 +434,7 @@ class ImportWindow(AK.NSObject):
                 )
         self.source.setNeedsDisplay_(True)
         self.grid.setNeedsDisplay_(True)
+        self.update_play()
 
     @objc.python_method
     def add_button(self, key: str, title: str, action: str) -> Any:
@@ -787,12 +788,18 @@ class ImportWindow(AK.NSObject):
             return
         for level in LEVELS:
             self.controls[f"difficulty_{level}"].setEnabled_(self.catalog_match is None)
-        self.controls["play"].setEnabled_(
+        play: Any = self.controls["play"]
+        play.setEnabled_(
             self.future is None
             and self.validated is not None
             and self.validated.givens == tuple(self.values)
             and not self.uncertain
             and self.difficulty in LEVELS
+        )
+        play.setAttributedTitle_(
+            button_title(
+                play, self.theme.controls.selected_text if play.isEnabled() else self.theme.text
+            )
         )
         self.controls["read"].setEnabled_(self.image is not None)
         self.controls["rotate"].setEnabled_(self.image is not None)

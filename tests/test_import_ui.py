@@ -463,3 +463,48 @@ def test_import_drawings_and_controls_use_every_theme(review: Any, appearance: s
         review.controls["difficulty_Expert"].performClick_(None)
         assert review.difficulty == "Expert"
         review.select_difficulty("Hard")
+
+
+@pytest.mark.parametrize("rounded", [False, True])
+@pytest.mark.parametrize("appearance", (AK.NSAppearanceNameAqua, AK.NSAppearanceNameDarkAqua))
+def test_play_button_text_tracks_enabled_state_and_theme(
+    review: Any,
+    isolated_catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+    rounded: bool,
+    appearance: str,
+) -> None:
+    """Keep the accented Play title legible after review, theme, and enabled-state changes."""
+    if rounded:
+        monkeypatch.setattr("sudoku.compatibility.supports_glass_buttons", Mock(return_value=False))
+    clues: tuple[int, ...] = isolated_catalog["Easy"][0].givens
+    review.values = list(clues)
+    review.validated = validate_import(clues)
+    flagged: int = next(index for index, digit in enumerate(clues) if digit)
+    native_appearance: Any = AK.NSAppearance.appearanceNamed_(appearance)
+    for name in THEME_NAMES:
+        theme: Any = theme_for_name(name)
+        review.uncertain = {flagged}
+        review.apply_theme(theme, native_appearance)
+        for enabled in (False, True, False, True):
+            review.uncertain = set() if enabled else {flagged}
+            review.update_play()
+            play: Any = review.controls["play"]
+            color: Any = play.attributedTitle().attribute_atIndex_effectiveRange_(
+                AK.NSForegroundColorAttributeName, 0, None
+            )[0]
+            expected: Any = theme.controls.selected_text if enabled else theme.text
+            assert play.isEnabled() is enabled
+            assert color.isEqual_(expected), (name, appearance, rounded, enabled)
+            assert play.keyEquivalent() == "\r"
+            assert play.target() == review and play.action() == "playPuzzle:"
+        review.apply_theme(theme, native_appearance)
+        color = play.attributedTitle().attribute_atIndex_effectiveRange_(
+            AK.NSForegroundColorAttributeName, 0, None
+        )[0]
+        assert color.isEqual_(theme.controls.selected_text), name
+        cancel: Any = review.controls["cancel"]
+        cancel_color: Any = cancel.attributedTitle().attribute_atIndex_effectiveRange_(
+            AK.NSForegroundColorAttributeName, 0, None
+        )[0]
+        assert cancel_color.isEqual_(theme.text), name
