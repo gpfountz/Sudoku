@@ -26,7 +26,26 @@ instead of 40 by 40. A local native regression model reproduces those dimensions
 using alignment insets of 6 points vertically and 7 points horizontally. The
 assertion now checks the 40-by-40 Auto Layout alignment rectangle, allowing native
 decoration outside it. All 54 targeted control and compact-menu checks pass locally
-with this correction; a rerun on the Sequoia MacBook is still needed.
+with this correction. The Sequoia MacBook rerun at commit `93c562f` also passed:
+**54 passed, 362 deselected in 25.75 seconds**, as reported by the maintainer.
+The subsequent full desktop-enabled run at that commit reported **1,016 passed
+and 9 failed in 962.59 seconds**. The failures were:
+
+- Four OCR confidence assertions: the expected digits were recognized, but some
+  required review rather than receiving the expected high confidence.
+- Two image-import UI checks whose background jobs exceeded the test's 15-second
+  wait. Their eventual result and duration have not yet been established.
+- One synthetic mouse-selection check for the themed Appearance dropdown.
+  The maintainer confirmed that selecting Dark manually with the mouse works.
+- Two active-digit menu badge checks: a hardcoded 24-point custom row enlarged
+  Sequoia's 22-point native row by two points.
+
+The follow-up measures the native menu row before inserting the badge, retaining
+the modern row size on macOS 27. A native regression model reproduces the shorter
+row. The synthetic dropdown test now waits for the menu row to appear and posts
+a hover followed by clicks using current event timestamps. These changes still
+need a targeted Sequoia rerun. OCR confidence thresholds remain unchanged while
+the diagnostic below collects evidence; the remaining manual checks are pending.
 
 These graphics diagnostics were also reported during launch:
 
@@ -122,6 +141,24 @@ The desktop suite exercises the actual OS-selected controls and forced rounded
 controls, along with Vision OCR fixtures. Report failures with the environment
 details and full failure output; a passing suite on this MacBook establishes
 evidence for Sequoia, not Sonoma.
+
+For the current follow-up, run the affected menu tests before repeating the full
+suite, then capture a small OCR trace:
+
+```sh
+RUN_NATIVE_LAYOUT_TESTS=1 .venv/bin/python -m pytest -q tests/test_native_layout.py -k 'active_digit_badge or cell_menu or themed_dropdown'
+.venv/bin/python -m scripts.diagnose_ocr
+.venv/bin/python -m scripts.diagnose_ocr --fixture thin-digits
+```
+
+The diagnostic prints JSON containing the OS, architecture, package versions,
+Vision request revision, recognized digits, confidence, and per-attempt timings.
+It uses the production recognition path and the same fixture pixels as the
+failing tests without changing recognition settings or review decisions. The
+default checks one 8; the thin-digit option checks three cells flagged for review
+on Sequoia. Neither command scans the whole board. On the M4, the 8 required
+three attempts and about 0.28 seconds, while the three thin-digit cells each took
+one attempt and about 0.04–0.14 seconds. These timings exclude process startup.
 
 Launch the source preview using automatic style selection:
 

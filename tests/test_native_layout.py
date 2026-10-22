@@ -15,7 +15,7 @@ from unittest.mock import Mock
 import AppKit as AK
 import objc
 import pytest
-from Foundation import NSRunLoop, NSTimer
+from Foundation import NSProcessInfo, NSRunLoop, NSTimer
 
 from scripts.preview_hint_links import preview_game, preview_hint
 from sudoku.app import AppController
@@ -70,6 +70,16 @@ class LegacyInsetPopUpButton(AK.NSPopUpButton):
     def alignmentRectInsets(self) -> Any:
         """Reproduce the 54-by-52 frame surrounding a 40-point alignment rectangle."""
         return AK.NSEdgeInsetsMake(6, 7, 6, 7)
+
+
+class LegacyRowMenu(AK.NSMenu):
+    """Model shorter native text rows while preserving custom-view heights."""
+
+    def size(self) -> Any:
+        """Subtract two points per native text row from the modern menu metrics."""
+        measured: Any = objc.super(LegacyRowMenu, self).size()
+        native_rows: int = sum(item.view() is None for item in self.itemArray())
+        return AK.NSMakeSize(measured.width, measured.height - 2 * native_rows)
 
 
 def test_history_replay_buttons_sit_beside_the_table(
@@ -225,6 +235,8 @@ def native_controller(
         monkeypatch.setattr("sudoku.compatibility.supports_glass_buttons", lambda: False)
     if getattr(request, "param", None) == "legacy-popup-insets":
         monkeypatch.setattr(AK, "NSPopUpButton", LegacyInsetPopUpButton)
+    if getattr(request, "param", None) == "legacy-menu-rows":
+        monkeypatch.setattr(AK, "NSMenu", LegacyRowMenu)
     with objc.autorelease_pool():
         AK.NSApplication.sharedApplication()
         monkeypatch.setattr(AK, "NSWindow", LayoutPreviewWindow)
@@ -1025,25 +1037,46 @@ def test_themed_dropdown_keeps_native_menu_selection(
     popup.selectItemWithTitle_("Light")
     application: Any = AK.NSApplication.sharedApplication()
     controller.settings_window.makeKeyAndOrderFront_(None)
+    event_state: dict[str, Any] = {}
 
     def select_dark(timer: Any) -> None:
         """Select Dark through actual events while the native menu tracks."""
         if input_method == "mouse":
             row: Any = popup.itemWithTitle_("Dark").view()
+            window: Any = row.window()
+            event_state["row_frame"] = str(row.frame())
+            event_state["window_visible"] = bool(window and window.isVisible())
+            if window is None or not window.isVisible() or row.bounds().size.width <= 0:
+                return
+            timer.invalidate()
             point: Any = row.convertPoint_toView_(
                 (row.bounds().size.width / 2, row.bounds().size.height / 2), None
             )
+            event_state["click_point"] = str(point)
             mouse_selector: str = (
                 "mouseEventWithType_location_modifierFlags_timestamp_windowNumber_"
                 "context_eventNumber_clickCount_pressure_"
             )
             mouse_factory: Any = getattr(AK.NSEvent, mouse_selector)
-            for event_type in (AK.NSEventTypeLeftMouseDown, AK.NSEventTypeLeftMouseUp):
+            for event_type in (
+                AK.NSEventTypeMouseMoved,
+                AK.NSEventTypeLeftMouseDown,
+                AK.NSEventTypeLeftMouseUp,
+            ):
                 mouse_event: Any = mouse_factory(
-                    event_type, point, 0, 0, row.window().windowNumber(), None, 0, 1, 1
+                    event_type,
+                    point,
+                    0,
+                    NSProcessInfo.processInfo().systemUptime(),
+                    window.windowNumber(),
+                    None,
+                    0,
+                    1,
+                    1,
                 )
                 application.postEvent_atStart_(mouse_event, False)
             return
+        timer.invalidate()
         event_selector: str = (
             "keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_"
             "characters_charactersIgnoringModifiers_isARepeat_keyCode_"
@@ -1064,7 +1097,7 @@ def test_themed_dropdown_keeps_native_menu_selection(
             )
             application.postEvent_atStart_(key_event, False)
 
-    timer: Any = NSTimer.timerWithTimeInterval_repeats_block_(0.1, False, select_dark)
+    timer: Any = NSTimer.timerWithTimeInterval_repeats_block_(0.05, True, select_dark)
     guard: Any = NSTimer.timerWithTimeInterval_repeats_block_(
         3, False, lambda timer: popup.menu().cancelTracking()
     )
@@ -1072,7 +1105,9 @@ def test_themed_dropdown_keeps_native_menu_selection(
         NSRunLoop.mainRunLoop().addTimer_forMode_(scheduled, AK.NSEventTrackingRunLoopMode)
     try:
         popup.performClick_(None)
-        assert popup.titleOfSelectedItem() == controller.preferences.appearance == "Dark"
+        assert popup.titleOfSelectedItem() == controller.preferences.appearance == "Dark", (
+            event_state
+        )
         assert controller.save.call_count == 1
     finally:
         timer.invalidate()
@@ -2369,7 +2404,7 @@ def test_cell_menu_highlights_active_digit_independently_of_cell_marks(
     assert submenu.itemWithTitle_("7") == active
     assert badge.tag() == 7
     assert badge.frame().size.width <= submenu.size().width
-    assert badge.frame().size.height == 24
+    assert badge.frame().size.height >= 20
     assert badge.marked == (mode == "Candidate")
     assert submenu.itemAtIndex_(1).view() is None
     assert active.state() == (
@@ -2428,6 +2463,7 @@ def test_active_digit_badge_preserves_its_own_checkmark_space(native_controller:
 
 
 @pytest.mark.parametrize("mode", ["Answer", "Candidate"])
+@pytest.mark.parametrize("native_controller", [False, "legacy-menu-rows"], indirect=True)
 def test_active_digit_badge_does_not_expand_menu(native_controller: Any, mode: str) -> None:
     """Keep normal number-menu width and row spacing with the square badge."""
     controller: Any = native_controller

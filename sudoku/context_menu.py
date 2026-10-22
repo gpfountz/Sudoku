@@ -15,7 +15,19 @@ from sudoku.model import Game
 from sudoku.theme import DEFAULT_THEME, Theme
 
 ACTIVE_DIGIT_BADGE_SIZE: float = 20.0
-NUMBER_MENU_ROW_HEIGHT: float = 24.0
+
+
+def native_menu_row_height(menu: Any) -> float:
+    """Measure a uniform text row while preserving the unshown menu's items and order."""
+    item: Any = menu.itemAtIndex_(menu.numberOfItems() - 1)
+    full_height: float = float(menu.size().height)
+    menu.removeItem_(item)
+    try:
+        menu.update()
+        return full_height - float(menu.size().height)
+    finally:
+        menu.addItem_(item)
+        menu.update()
 
 
 class ColorGridView(AK.NSView):
@@ -154,13 +166,14 @@ class CellContextMenu(NSObject):
         # Measure that column before replacing the active row with a custom view.
         submenu.update()
         plain_width: float = float(submenu.size().width)
+        row_height: float = native_menu_row_height(submenu) if active_item is not None else 0
         for item in selected_items:
             item.setState_(AK.NSControlStateValueOn)
         submenu.update()
         checked_width: float = float(submenu.size().width)
         if active_item is not None:
             button: Any = ActiveDigitMenuButton.alloc().initWithFrame_(
-                AK.NSMakeRect(0, 0, plain_width, NUMBER_MENU_ROW_HEIGHT)
+                AK.NSMakeRect(0, 0, plain_width, row_height)
             )
             button.setButtonType_(AK.NSButtonTypeMomentaryChange)
             button.setFocusRingType_(AK.NSFocusRingTypeNone)
