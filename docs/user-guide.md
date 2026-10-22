@@ -240,7 +240,9 @@ separate appearance choice.
 High Contrast uses opaque action controls, stronger grids, outlined matching digits, and underlined
 entered answers. These provide cues beyond color. The selected cell has a focus outline that
 preserves its other background highlights. When the window grows, the board and entry controls
-remain centered together. Main game actions and the compact menu use macOS 27 AppKit glass buttons.
+remain centered together. Main game actions and the compact menu use AppKit glass buttons
+on macOS 26 and newer when available, with native rounded controls on Sequoia. High Contrast
+keeps opaque controls.
 
 Givens and entered answers use semibold digits; pencil marks use bold digits in inset 3×3 positions.
 Color distinguishes editable answers from givens, and candidate highlights and hint markings follow

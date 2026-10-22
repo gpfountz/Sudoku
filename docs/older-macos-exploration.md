@@ -1,17 +1,22 @@
 # Older macOS support: exploration
 
 Investigated October 21, 2026 on `codex/feature-older-macos-support`, starting
-from commit `0b89f3d`. This is a feasibility assessment, not a support claim.
-The first implementation step now adds guarded native control styles and an
-isolated source preview; see the [testing procedure](older-macos-testing.md).
+from commit `0b89f3d`. The initial findings below are historical; the current
+support policy follows. Guarded native control styles, Intel Sequoia OCR, and an
+isolated source preview have since been validated; see the [testing procedure](older-macos-testing.md).
 Dependency pins and standalone release requirements remain unchanged.
 
-## Proposed scope
+## Current support policy
 
-Use one codebase with macOS Sonoma 14 as the proposed minimum, covering Apple
-Silicon and Intel. Preserve the current macOS 27 appearance and behavior. Older
-systems would use native rounded controls where glass is unavailable; game
-features should remain the same.
+The supported source baseline is **macOS Sequoia 15 or newer**, on Apple Silicon
+and Intel. Preserve the current macOS 27 appearance and behavior, using native
+rounded controls where glass is unavailable. The standalone builder still targets
+macOS 27 on Apple Silicon; source support does not establish bundle compatibility.
+
+The initial assessment considered Sonoma 14. Sonoma testing is now deferred
+because a test environment is unavailable. Retain compatibility guards and
+fallback code that may work there, but make no Sonoma support claim or runtime
+block. Revisit testing and the documented minimum if a tester becomes available.
 
 Treat operating-system support and processor support as separate tasks. An
 Apple Silicon Sonoma build does not establish Intel compatibility, and an Intel
@@ -21,9 +26,9 @@ Sequoia test does not establish Sonoma compatibility.
 
 | Area | Current evidence | Work required |
 | --- | --- | --- |
-| Bundle minimum | `setup.py` sets `LSMinimumSystemVersion` to `27.0`. | Share one minimum-version setting with the builder and set it to `14.0` after validation. |
+| Bundle minimum | `setup.py` sets `LSMinimumSystemVersion` to `27.0`. | Share one minimum-version setting with the builder and target `15.0` after bundle validation. |
 | Launcher | `scripts/build_app.py` requires SDK 27+, deployment target 27, and `arm64`. | Keep the modern SDK; lower the deployment target and parameterize architecture. Update the verifier and tests. |
-| Python runtime | The active Homebrew CPython 3.14.8 framework has Mach-O `minos 27.0`; its configured deployment target is also 27. | Create a separate build environment using a Python distribution whose actual binaries support Sonoma. Changing an environment variable cannot retarget an existing Python binary. |
+| Python runtime | The active Homebrew CPython 3.14.8 framework has Mach-O `minos 27.0`; its configured deployment target is also 27. | Create a separate build environment using a Python distribution whose actual binaries support Sequoia. Changing an environment variable cannot retarget an existing Python binary. |
 | Glass controls | Five unguarded glass-style uses occur in `sudoku/app.py`, `sudoku/controls.py`, and `sudoku/layout.py`. | Centralize style selection and check runtime availability before using glass. Preserve the High Contrast rounded style. |
 | Native dependencies | Installed PyObjC wheels are universal2; NumPy and OpenCV wheels are ARM-only. | Resolve the same pins for Intel, inspect their actual binaries, and test imports and behavior. |
 | License inventory | `sudoku/license_checks.py` verifies dependency versions, Python notices, and exact native-library inventories and hashes. | Review and represent architecture-specific inventories; Intel libraries cannot be assumed to match the ARM hashes. Preserve the existing checks. |
@@ -82,10 +87,11 @@ proposed approach to preserving the current macOS 27 experience.
    requires an Intel-capable Python runtime, extensions, and packaging process.
    SDK/tool availability on the Sequoia Mac must be checked before selecting
    native versus cross-architecture packaging.
-5. Test Sonoma itself, then update documentation and automated coverage to match
-   the configurations actually verified. A universal2 app can be considered
-   later; it would require both architectures throughout the native dependency
-   tree, not just a universal launcher.
+5. Keep Sonoma testing deferred until a tester is available, then reconsider
+   the documented minimum using actual results. It does not block the Sequoia
+   source-support work. A universal2 app can be considered later; it would require
+   both architectures throughout the native dependency tree, not just a universal
+   launcher.
 
 ## Validation targets
 
@@ -93,8 +99,8 @@ proposed approach to preserving the current macOS 27 experience.
 | --- | --- | --- |
 | M4, macOS 27 | Preserve current glass, theme, input, and window behavior. | Native and forced-rounded paths validated locally; detailed results are in the testing procedure. |
 | Intel MacBook, Sequoia 15 | Verify Intel installation, fallback controls, OCR, and performance. | Source regression milestone passed through OpenCore Legacy Patcher: 1,103 passes in the earlier full run plus all 442 native-layout checks at `2438e9b` in 2:04. Automatic Fast-first OCR, clipboard/file imports, and physical mouse selection confirmed manually. Remaining hands-on checks and startup graphics diagnostics are documented separately. |
-| Sonoma 14, Apple Silicon | Verify the proposed oldest OS on ARM. | Test environment needed. |
-| Sonoma 14, Intel | Verify the proposed oldest OS on Intel. | Test environment needed if claiming this combination. |
+| Sonoma 14, Apple Silicon | Possible future extension below the supported minimum. | Deferred until a tester is available; unsupported and unverified. |
+| Sonoma 14, Intel | Possible future extension below the supported minimum. | Deferred until a tester is available; unsupported and unverified. |
 
 On each claimed configuration, check launch; all themes in Light and Dark;
 High Contrast; keyboard focus; Control-click/right-click; shifted candidate

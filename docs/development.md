@@ -12,12 +12,22 @@
 
 ## Requirements
 
-The current app and bundle target **macOS 27 or newer on Apple Silicon**. Building requires
-Xcode or Command Line Tools with **macOS SDK 27 or newer**, plus Git to clone the repository.
-The standalone app includes its Python runtime; Python is needed only for development.
+Running from source requires **macOS Sequoia 15 or newer**, on Intel or Apple Silicon,
+plus Git and Xcode or Command Line Tools. Source validation used CPython 3.14.8 on an Intel
+MacBook running Sequoia 15.8.1 through OpenCore Legacy Patcher and an M4 running macOS 27.0.1.
+See the [validation record](older-macos-testing.md) for the tested paths and remaining checks.
+
+Sonoma 14 is untested and outside the current supported range. Compatibility guards and
+fallbacks are retained; revisit testing and the documented minimum if a Sonoma tester becomes
+available. This support policy does not introduce a runtime block on Sonoma.
+
+The current standalone builder still targets **macOS 27 or newer on Apple Silicon** and
+requires **macOS SDK 27 or newer**. Extending local bundles to Sequoia and Intel is separate
+work. The standalone app includes its Python runtime; Python is needed to run the source
+and to build the bundle.
 
 The distribution is `pfountz-sudoku`; the import package and command are `sudoku`. Python 3.13 or
-newer is required, and the current source was verified with Python 3.14.6. Application logic is
+newer is required, and the current source was verified with Python 3.14.8. Application logic is
 Python, with Cocoa accessed through PyObjC. The game engine and regular storage can be tested
 without the GUI; image recognition uses native Apple Vision and Quartz alongside OpenCV and NumPy.
 

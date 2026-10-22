@@ -1,12 +1,16 @@
-# Older macOS testing: first step
+# Older macOS source support and validation
 
 Branch: `codex/feature-older-macos-support`.
 
-This step adds native rounded-button fallbacks for older systems while retaining
-glass on macOS 26 and newer. High Contrast keeps its opaque controls. Standalone
-packaging still targets macOS 27 and Apple Silicon; run this experiment from
+The supported source baseline is **macOS Sequoia 15 or newer**, on Intel or Apple
+Silicon. Native controls use rounded fallbacks on Sequoia and retain glass on
+macOS 26 and newer. High Contrast keeps its opaque controls. Standalone
+packaging still targets macOS 27 and Apple Silicon; run this compatibility work from
 source. Source regression validation has passed on the tested Intel Sequoia/OCLP
-setup. Sonoma remains unverified; remaining hands-on checks are listed below.
+setup. Sonoma 14 is untested and outside the supported range. Its possible
+compatibility paths remain in the code. Sonoma validation and any expansion of
+the supported range are deferred until a tester is available. Remaining hands-on
+checks are listed below.
 
 Local automated validation on October 21, 2026, using the M4 on macOS 27.0.1
 and CPython 3.14.8: the complete desktop-enabled suite passed **1,021 tests**.
@@ -526,9 +530,9 @@ policy were unchanged between those revisions.
 
 This completes the automated source-validation milestone on the tested Intel
 Sequoia/OCLP configuration. Remaining hands-on checks, the unexplained startup
-graphics messages, Sonoma validation, and older-system standalone packaging are
-separate outstanding items. No further Intel regression rerun is needed for the
-documentation update recording this result.
+graphics messages and older-system standalone packaging are separate outstanding
+items. Sonoma validation is deferred until a tester is available. No further Intel
+regression rerun is needed for the documentation update recording this result.
 
 ## Local preview on macOS 27
 

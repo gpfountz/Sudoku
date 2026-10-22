@@ -30,7 +30,9 @@ See the [user guide](docs/user-guide.md) for controls, importing, daily games, a
 
 ## Requirements
 
-- **Platform:** an Apple Silicon Mac running **macOS 27 or newer**.
+- **Platform for source runs:** an Intel or Apple Silicon Mac running
+  **macOS Sequoia 15 or newer**. Sonoma 14 is untested and outside the supported range;
+  compatibility code is retained so support can be reconsidered after future testing.
 - **To run from source:** **Python 3.13+**; the pinned development setup was verified with Python 3.14.
 - **Development tools:** Git and Xcode or Command Line Tools. Optional local app builds require
   **macOS SDK 27+**.
@@ -70,6 +72,9 @@ Source launches use your normal Sudoku saves by default. See the
 
 This project is published as source; no prebuilt app is provided. You can build your own
 standalone `Sudoku.app`, which includes Python and the puzzle catalog.
+The current local builder targets **macOS 27 or newer on Apple Silicon**. Standalone
+Sequoia and Intel builds still need separate implementation and validation; the source-run
+requirement above does not change the existing bundle's deployment target.
 
 Packaging requires stable **CPython 3.14.6 or newer within 3.14** and the pinned dependencies in
 `requirements-dev.txt`. Later 3.14 patches are accepted when their installed Python license text
