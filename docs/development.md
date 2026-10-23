@@ -25,7 +25,8 @@ The standalone builder selects the active Python architecture (`arm64` or `x86_6
 targets the build Mac's macOS major version or newer. Run it in a native Python environment
 on each Mac. It requires an SDK for that macOS major version or newer, preserving modern
 SDK behavior on macOS 27. The app includes Python; Python is needed to run the source and
-to build the bundle. The Intel packaged app still needs validation on the Sequoia Mac.
+to build the bundle. See the [packaged-app validation record](intel-packaging-review.md) for the
+successful Intel build/manual checks and the pending Dark-mode selected-label retry.
 
 The distribution is `pfountz-sudoku`; the import package and command are `sudoku`. Python 3.13 or
 newer is required, and the current source was verified with Python 3.14.8. Application logic is

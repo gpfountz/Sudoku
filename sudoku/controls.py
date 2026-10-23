@@ -327,6 +327,14 @@ class GlassChoiceControl(AK.NSStackView):
             button.setTag_(index)
             button.setBezelStyle_(action_bezel_style())
             button.setButtonType_(AK.NSButtonTypePushOnPushOff)
+            if not compatibility.supports_glass_buttons():
+                # Older rounded cells can remap the normal title's ink in their on
+                # state. Use explicit selected contents and change only the bezel.
+                cell: Any = button.cell()
+                cell.setShowsStateBy_(AK.NSContentsCellMask | AK.NSChangeBackgroundCellMask)
+                cell.setHighlightsBy_(
+                    AK.NSContentsCellMask | AK.NSPushInCellMask | AK.NSChangeBackgroundCellMask
+                )
             button.setFont_(font)
             normal_title: Any = button_title(button, self.theme.text)
             selected_title: Any = button_title(button, self.theme.controls.selected_text)
@@ -377,6 +385,8 @@ class GlassChoiceControl(AK.NSStackView):
             button.setAttributedTitle_(
                 self.choice_titles[button_index][1 if button_index == index else 0]
             )
+            if not compatibility.supports_glass_buttons():
+                button.setAttributedAlternateTitle_(self.choice_titles[button_index][1])
             button.setState_(
                 AK.NSControlStateValueOn if button_index == index else AK.NSControlStateValueOff
             )

@@ -75,7 +75,8 @@ standalone `Sudoku.app`, which includes Python and the puzzle catalog.
 Use the same `./scripts/build_and_deploy.sh` command on Intel and Apple Silicon. It builds
 one app for the active Python architecture and the build Mac's macOS major version or newer:
 a Sequoia build targets 15+, while a macOS 27 build targets 27+ and retains its modern SDK.
-It does not produce cross-architecture or universal apps. Intel packaged-app validation is pending.
+It does not produce cross-architecture or universal apps. See the
+[packaged-app validation record](docs/intel-packaging-review.md) for platform results and remaining checks.
 
 Packaging requires stable **CPython 3.14.6 or newer within 3.14** and the pinned dependencies in
 `requirements-dev.txt`. Later 3.14 patches are accepted when their installed Python license text

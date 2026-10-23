@@ -42,7 +42,8 @@ the outer app after metadata and catalog changes. It no longer signs the main la
 Regression fixtures use actual unsigned Intel and ARM executables, reproduce that premature-signing
 failure, and pass strict verification after the corrected signing sequence. All 119 focused
 packaging/deployment/license/path checks pass after the repair, including failure propagation
-and signing-order coverage. The Intel retry and its packaged-app runtime checks remain pending.
+and signing-order coverage. The user confirmed the Intel build and deployment succeeded with
+1.1.19 after this repair.
 
 The M4/macOS 27.0.1 validation used the shared shell script with private output and installation
 directories under `/private/tmp`, leaving the regular installed app untouched. It produced one
@@ -56,10 +57,27 @@ import-window creation, save/restore with isolated player data, and the actual s
 3/9/5 OCR fixtures. All three digits were correct without review flags on the M4. This probe
 does not replace manual clipboard/file-import and interaction checks on Intel.
 
-The 115 focused packaging, deployment, path, metadata, and license tests passed, together with
-Ruff lint/format, Mypy, and whitespace checks. Intel target propagation is covered by simulated
-builds; the actual Intel app build, installation, and runtime remain pending. Source tests on
-Sequoia do not substitute for packaged-app testing.
+The initial 115 focused packaging, deployment, path, metadata, and license tests passed, together
+with Ruff lint/format, Mypy, and whitespace checks. The later signing repair increased that
+focused set to 119 tests. The user subsequently confirmed that the installed Intel app passed
+the requested manual checks except for selected choice-label contrast in Dark mode. The reported
+checks covered About/version, appearances/themes, entry controls/dropdowns/hints, clipboard/file
+import, and save/quit/relaunch. These are user-reported results from the Sequoia/OCLP MacBook.
+
+### Selected choice labels in Sequoia Dark mode
+
+The selected Number First/Answers labels were difficult to read on the Intel Mac, while macOS 27
+looked correct. The rounded push-on/push-off cells had a styled normal title but no styled alternate
+title, and retained AppKit's gray-change state flags. The compatibility path now explicitly uses
+the theme's selected title for alternate contents and limits state/highlight changes to the native
+background and press feedback. Glass controls keep their existing setup. Regression checks cover
+all themes, both choice rows, every selection, and Light/Dark/Light transitions. The Intel visual
+retry remains pending; the M4 cannot establish Sequoia's exact rendered pixels.
+
+Local validation of this repair passed all 461 native-layout tests and 136 theme/compatibility
+tests, plus lint, formatting, typing, and whitespace checks. An isolated M4 preview forced the
+rounded compatibility path with Dark appearance, Number First, and Answers selected; its window
+capture showed readable selected labels. The native glass path is outside this rendering change.
 
 For the Intel handoff, run the usual command on that Mac after updating the checkout and its
 development dependencies:

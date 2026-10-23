@@ -562,6 +562,49 @@ def test_named_themes_reach_settings_menus_dialogs_and_choice_text(
 
 
 @pytest.mark.parametrize("native_controller", [True], indirect=True)
+@pytest.mark.parametrize("name", THEME_NAMES)
+def test_legacy_selected_choice_titles_keep_theme_ink(native_controller: Any, name: str) -> None:
+    """Keep selected and pressed rounded labels styled across Light/Dark and selection changes."""
+    controller: Any = native_controller
+    theme: Any = theme_for_name(name)
+    controller.apply_theme(theme)
+    before: object = controller.game.snapshot()
+    for appearance in ("Light", "Dark", "Light"):
+        controller.preferences.appearance = appearance
+        controller.apply_appearance()
+        for key in ("order", "mode"):
+            choices: Any = controller.controls[key]
+            for selected in range(len(choices.choice_buttons)):
+                choices.setSelectedSegment_(selected)
+                for index, button in enumerate(choices.choice_buttons):
+                    cell: Any = button.cell()
+                    assert cell.showsStateBy() & AK.NSContentsCellMask
+                    assert not cell.showsStateBy() & AK.NSChangeGrayCellMask
+                    assert cell.showsStateBy() & AK.NSChangeBackgroundCellMask
+                    assert cell.highlightsBy() & AK.NSContentsCellMask
+                    assert not cell.highlightsBy() & AK.NSChangeGrayCellMask
+                    assert cell.highlightsBy() & AK.NSPushInCellMask
+                    assert button.state() == (
+                        AK.NSControlStateValueOn if index == selected else AK.NSControlStateValueOff
+                    )
+                    alternate: Any = button.attributedAlternateTitle()
+                    assert alternate.string() == button.title()
+                    alternate_color: Any = alternate.attribute_atIndex_effectiveRange_(
+                        AK.NSForegroundColorAttributeName, 0, None
+                    )[0]
+                    assert alternate_color.isEqual_(theme.controls.selected_text)
+                    normal_color: Any = button.attributedTitle().attribute_atIndex_effectiveRange_(
+                        AK.NSForegroundColorAttributeName, 0, None
+                    )[0]
+                    expected: Any = (
+                        theme.controls.selected_text if index == selected else theme.text
+                    )
+                    assert normal_color.isEqual_(expected)
+                    assert button.target() == choices and button.action() == "segmentPressed:"
+    assert controller.game.snapshot() == before
+
+
+@pytest.mark.parametrize("native_controller", [True], indirect=True)
 @pytest.mark.parametrize("appearance", ["Light", "Dark"])
 @pytest.mark.parametrize("enabled", [False, True])
 def test_older_high_contrast_buttons_retain_native_unselected_surfaces(
