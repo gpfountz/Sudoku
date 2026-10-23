@@ -5,6 +5,20 @@ environment. On Sequoia, the app and launcher target macOS 15.0. On macOS 27, th
 retaining the selected modern SDK. Each build checks every packaged Mach-O binary for the
 selected architecture and a minimum macOS no newer than the app advertises.
 
+## Completed validation
+
+On October 22, 2026, the maintainer confirmed that **1.1.23 (`69567d6`)** looks correct
+on the Intel Sequoia 15.8.1/OCLP MacBook, first through `launch.py` and then after building
+and installing with `./scripts/build_and_deploy.sh`. The final selected-choice correction
+restored readable colors, matching button sizes, and native title placement. All other
+requested packaged-app checks had already passed, as recorded below.
+
+This completes the Intel source and local packaged-app validation milestone. The M4/macOS 27
+path retains its modern controls and SDK behavior. Sonoma remains untested and outside the
+documented supported range; its compatibility code is retained for future testing. The
+development history below describes earlier failures and intermediate validation steps,
+not outstanding retest requests.
+
 ## Dependency inventory
 
 On October 22, 2026, downloaded the pinned Intel wheels with pip's binary-only download mode,
@@ -102,10 +116,10 @@ unselected bezel pixels in Light and Dark, including asymmetric legacy alignment
 and state-preservation checks cover repeat drawing and resizing.
 All 472 native-layout tests passed locally with this correction.
 
-The Intel visual retry should use `.venv/bin/python launch.py` first. After the size is accepted,
-check the packaged app once through the shared deployment script.
+The maintainer accepted the corrected appearance in the source launch and then confirmed
+the installed packaged app also looks good. No further visual retry is outstanding for this fix.
 
-For the Intel handoff, run the usual command on that Mac after updating the checkout and its
+For future Intel builds, run the usual command on that Mac after updating the checkout and its
 development dependencies:
 
 ```sh

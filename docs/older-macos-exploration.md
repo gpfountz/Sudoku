@@ -3,15 +3,18 @@
 Investigated October 21, 2026 on `codex/feature-older-macos-support`, starting
 from commit `0b89f3d`. The initial findings below are historical; the current
 support policy follows. Guarded native control styles, Intel Sequoia OCR, and an
-isolated source preview have since been validated; see the [testing procedure](older-macos-testing.md).
+isolated source preview have since been validated. The Intel source and local packaged-app
+milestone is complete; see the [validation record](older-macos-testing.md#completed-milestone).
 Dependency pins and standalone release requirements remain unchanged.
 
 ## Current support policy
 
 The supported source baseline is **macOS Sequoia 15 or newer**, on Apple Silicon
 and Intel. Preserve the current macOS 27 appearance and behavior, using native
-rounded controls where glass is unavailable. The standalone builder still targets
-macOS 27 on Apple Silicon; source support does not establish bundle compatibility.
+rounded controls where glass is unavailable. The shared `build_and_deploy.sh` builds one
+host-native app: Intel Sequoia builds target macOS 15+, while M4 macOS 27 builds target 27+
+and retain the modern SDK. Source and local packaged-app paths have been validated on those
+two machines; see the [packaging record](intel-packaging-review.md#completed-validation).
 
 The initial assessment considered Sonoma 14. Sonoma testing is now deferred
 because a test environment is unavailable. Retain compatibility guards and
@@ -98,7 +101,7 @@ proposed approach to preserving the current macOS 27 experience.
 | Environment | Purpose | Current status |
 | --- | --- | --- |
 | M4, macOS 27 | Preserve current glass, theme, input, and window behavior. | Native and forced-rounded paths validated locally; detailed results are in the testing procedure. |
-| Intel MacBook, Sequoia 15 | Verify Intel installation, fallback controls, OCR, and performance. | Source regression milestone passed through OpenCore Legacy Patcher: 1,103 passes in the earlier full run plus all 442 native-layout checks at `2438e9b` in 2:04. Automatic Fast-first OCR, clipboard/file imports, and physical mouse selection confirmed manually. Remaining hands-on checks and startup graphics diagnostics are documented separately. |
+| Intel MacBook, Sequoia 15 | Verify Intel installation, fallback controls, OCR, and performance. | Complete on the tested OCLP MacBook. Earlier automated validation covered 1,103 full-run passes and all 442 native-layout checks at `2438e9b`; automatic OCR, imports, and manual interactions passed. Final choice-button source and installed-app appearance accepted at `69567d6` (1.1.23). |
 | Sonoma 14, Apple Silicon | Possible future extension below the supported minimum. | Deferred until a tester is available; unsupported and unverified. |
 | Sonoma 14, Intel | Possible future extension below the supported minimum. | Deferred until a tester is available; unsupported and unverified. |
 

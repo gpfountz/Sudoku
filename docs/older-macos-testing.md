@@ -1,6 +1,6 @@
 # Older macOS source support and validation
 
-Branch: `codex/feature-older-macos-support`.
+Implemented on `codex/feature-older-macos-support`, now merged into `main`.
 
 The supported source baseline is **macOS Sequoia 15 or newer**, on Intel or Apple
 Silicon. Native controls use rounded fallbacks on Sequoia and retain glass on
@@ -10,15 +10,29 @@ macOS major version; see [Intel packaging validation](intel-packaging-review.md)
 Source regression validation has passed on the tested Intel Sequoia/OCLP
 setup. Sonoma 14 is untested and outside the supported range. Its possible
 compatibility paths remain in the code. Sonoma validation and any expansion of
-the supported range are deferred until a tester is available. Remaining hands-on
-checks are listed below.
+the supported range are deferred until a tester is available.
+
+## Completed milestone
+
+On October 22, 2026, the maintainer completed the Intel Sequoia 15.8.1/OCLP source and
+packaged-app checks. The final choice-button appearance was accepted at **1.1.23 (`69567d6`)**
+through `launch.py`, then confirmed after `./scripts/build_and_deploy.sh`. All other requested
+manual checks had passed earlier. The latest M4 native-layout suite passed 472 tests,
+and GitHub CI passed for that exact application commit. See the
+[packaged-app validation record](intel-packaging-review.md#completed-validation).
+
+No further Intel retest is required for this compatibility milestone. Earlier progress entries
+and instructions below are retained as development history and future regression procedures;
+their intermediate pending items are superseded by this completed result. The startup graphics
+messages remain diagnostic observations without a reported functional failure. Sonoma testing
+is deferred, rather than a requirement for completing Sequoia support.
 
 Local automated validation on October 21, 2026, using the M4 on macOS 27.0.1
 and CPython 3.14.8: the complete desktop-enabled suite passed **1,021 tests**.
 Ruff lint and formatting, Mypy, and the dependency-license checks also passed.
 The control fallback was previewed in Light, Dark, and High Contrast. The
 maintainer completed hands-on local validation on October 21, 2026; this step
-is ready for source-based testing on the Intel Sequoia MacBook.
+was the starting point for the subsequently completed Intel Sequoia checks.
 
 ## Faster visual iteration
 
@@ -37,8 +51,8 @@ still need packaged-app validation. Source launches do not replace those checks.
 ## Reported Sequoia progress
 
 The Intel Haswell MacBook running macOS 15.8.1 through OpenCore Legacy Patcher
-successfully installed the source package and displayed the board. Manual
-visual and functional testing is still in progress.
+successfully installed the source package and displayed the board. This section records
+the investigation leading to the completed milestone above.
 
 The first targeted native run reported 48 passed and two failures. Both failures
 were the same compact-menu assertion: its native frame measured 54 by 52 points
@@ -578,15 +592,15 @@ The source preview does not require the builder's SDK 27 launcher compilation.
 For a new checkout:
 
 ```sh
-git clone --branch codex/feature-older-macos-support https://github.com/gpfountz/Sudoku.git
+git clone https://github.com/gpfountz/Sudoku.git
 cd Sudoku
 ```
 
-For an existing, clean checkout, fetch and switch to the feature branch instead:
+For an existing, clean checkout, fetch and switch to `main` instead:
 
 ```sh
 git fetch origin
-git switch codex/feature-older-macos-support
+git switch main
 git pull --ff-only
 ```
 
@@ -680,6 +694,6 @@ On Sequoia this should select rounded controls automatically. Check:
 - Daily games and save/reopen. Preview progress should persist without changing
   the installed app's progress.
 
-Keep this source-testing step separate from changing the bundle deployment
-target, Python distribution, or architecture-specific license inventory. Those
-are later steps after the native compatibility path is validated.
+For a packaged-app check after source validation, use `./scripts/build_and_deploy.sh`.
+Its host-native target selection and architecture-specific license inventory checks are
+already implemented; see the [packaging record](intel-packaging-review.md).

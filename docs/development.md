@@ -15,7 +15,8 @@
 Running from source requires **macOS Sequoia 15 or newer**, on Intel or Apple Silicon,
 plus Git and Xcode or Command Line Tools. Source validation used CPython 3.14.8 on an Intel
 MacBook running Sequoia 15.8.1 through OpenCore Legacy Patcher and an M4 running macOS 27.0.1.
-See the [validation record](older-macos-testing.md) for the tested paths and remaining checks.
+See the [validation record](older-macos-testing.md#completed-milestone) for the completed checks
+on those machines.
 
 Sonoma 14 is untested and outside the current supported range. Compatibility guards and
 fallbacks are retained; revisit testing and the documented minimum if a Sonoma tester becomes
@@ -26,7 +27,8 @@ targets the build Mac's macOS major version or newer. Run it in a native Python 
 on each Mac. It requires an SDK for that macOS major version or newer, preserving modern
 SDK behavior on macOS 27. The app includes Python; Python is needed to run the source and
 to build the bundle. See the [packaged-app validation record](intel-packaging-review.md) for the
-successful Intel build/manual checks and the pending Dark-mode selected-label retry.
+successful Intel build/manual checks, including the accepted selected-button appearance in
+both source and installed-app runs at 1.1.23.
 
 The distribution is `pfountz-sudoku`; the import package and command are `sudoku`. Python 3.13 or
 newer is required, and the current source was verified with Python 3.14.8. Application logic is
