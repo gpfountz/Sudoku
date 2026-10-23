@@ -300,6 +300,56 @@ class ThemeFocusOutline(AK.NSView):
             outline.stroke()
 
 
+class LegacyChoiceButton(AK.NSButton):
+    """Keep a themed selected fill and its text paired across legacy window focus states."""
+
+    theme: Theme = DEFAULT_THEME
+    selection_fill: Any = DEFAULT_THEME.accent
+
+    def drawRect_(self, dirty: Any) -> None:
+        """Draw selected choices without AppKit's focus-dependent accent darkening."""
+        selected: bool = self.state() == AK.NSControlStateValueOn
+        pressed: bool = self.cell().isHighlighted()
+        if not selected and not pressed:
+            objc.super(LegacyChoiceButton, self).drawRect_(dirty)
+            return
+        frame: Any = AK.NSInsetRect(self.bounds(), 1, 1)
+        outline: Any = AK.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(frame, 6, 6)
+        self.selection_fill.setFill()
+        outline.fill()
+        self.theme.controls.border.setStroke()
+        outline.setLineWidth_(2 if self.theme.high_contrast else 1)
+        outline.stroke()
+        color: Any = self.theme.controls.selected_text
+        if not self.isEnabled():
+            color = color.colorWithAlphaComponent_(self.theme.controls.dimmed_opacity)
+        attributes: Any = NSDictionary.dictionaryWithDictionary_(
+            {AK.NSFontAttributeName: self.font(), AK.NSForegroundColorAttributeName: color}
+        )
+        title: Any = NSString.stringWithString_(self.title())
+        measured: Any = title.sizeWithAttributes_(attributes)
+        title.drawAtPoint_withAttributes_(
+            (
+                (self.bounds().size.width - measured.width) / 2,
+                (self.bounds().size.height - measured.height) / 2,
+            ),
+            attributes,
+        )
+        if self.window() and self.window().isKeyWindow() and self.window().firstResponder() == self:
+            color.setStroke()
+            focus: Any = AK.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+                AK.NSInsetRect(frame, 2, 2), 4, 4
+            )
+            focus.setLineWidth_(2)
+            focus.stroke()
+
+
+def choice_button(title: str, target: Any) -> Any:
+    """Use native glass controls and a paired-color fallback for older rounded controls."""
+    button_type: Any = AK.NSButton if compatibility.supports_glass_buttons() else LegacyChoiceButton
+    return button_type.buttonWithTitle_target_action_(title, target, "segmentPressed:")
+
+
 class GlassChoiceControl(AK.NSStackView):
     """Present one-of-many choices as a compact row of adaptive native buttons."""
 
@@ -323,7 +373,7 @@ class GlassChoiceControl(AK.NSStackView):
         self.setSpacing_(4)
         font: Any = AK.NSFont.systemFontOfSize_(13)
         for index, title in enumerate(labels):
-            button: Any = AK.NSButton.buttonWithTitle_target_action_(title, self, "segmentPressed:")
+            button: Any = choice_button(title, self)
             button.setTag_(index)
             button.setBezelStyle_(action_bezel_style())
             button.setButtonType_(AK.NSButtonTypePushOnPushOff)
@@ -363,6 +413,8 @@ class GlassChoiceControl(AK.NSStackView):
         self.selected_bezel_color = theme.accent
         self.choice_titles = []
         for button in self.choice_buttons:
+            if isinstance(button, LegacyChoiceButton):
+                button.theme = theme
             button.setBezelStyle_(action_bezel_style(theme.high_contrast))
             self.choice_titles.append(
                 (
@@ -377,6 +429,8 @@ class GlassChoiceControl(AK.NSStackView):
         """Keep exactly one native button visibly selected."""
         self.selected_index = index
         for button_index, button in enumerate(self.choice_buttons):
+            if isinstance(button, LegacyChoiceButton):
+                button.selection_fill = self.selected_bezel_color
             button.setBezelColor_(
                 self.selected_bezel_color
                 if button_index == index
@@ -390,6 +444,7 @@ class GlassChoiceControl(AK.NSStackView):
             button.setState_(
                 AK.NSControlStateValueOn if button_index == index else AK.NSControlStateValueOff
             )
+            button.setNeedsDisplay_(True)
 
     def selectedSegment(self) -> int:
         """Expose the selected choice to the existing controller actions."""

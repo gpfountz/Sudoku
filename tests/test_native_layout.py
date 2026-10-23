@@ -27,6 +27,7 @@ from sudoku.compatibility import action_bezel_style
 from sudoku.context_menu import CellContextMenu
 from sudoku.controls import (
     GlassChoiceControl,
+    LegacyChoiceButton,
     ThemeFocusOutline,
     ThemeMenuRow,
     ThemePopUpButton,
@@ -80,6 +81,14 @@ class LegacyInsetButton(AK.NSButton):
 
     def alignmentRectInsets(self) -> Any:
         """Expose seven points of horizontal native bezel decoration on each side."""
+        return AK.NSEdgeInsetsMake(0, 7, 0, 7)
+
+
+class LegacyInsetChoiceButton(LegacyChoiceButton):
+    """Retain legacy native alignment margins around the selected-color fallback."""
+
+    def alignmentRectInsets(self) -> Any:
+        """Model the seven-point horizontal bezel extent of older AppKit."""
         return AK.NSEdgeInsetsMake(0, 7, 0, 7)
 
 
@@ -250,6 +259,12 @@ def native_controller(
         monkeypatch.setattr(AK, "NSMenu", LegacyRowMenu)
     if getattr(request, "param", None) == "legacy-button-insets":
         monkeypatch.setattr(AK, "NSButton", LegacyInsetButton)
+        monkeypatch.setattr(
+            "sudoku.controls.choice_button",
+            lambda title, target: LegacyInsetChoiceButton.buttonWithTitle_target_action_(
+                title, target, "segmentPressed:"
+            ),
+        )
     with objc.autorelease_pool():
         AK.NSApplication.sharedApplication()
         monkeypatch.setattr(AK, "NSWindow", LayoutPreviewWindow)
@@ -577,6 +592,9 @@ def test_legacy_selected_choice_titles_keep_theme_ink(native_controller: Any, na
             for selected in range(len(choices.choice_buttons)):
                 choices.setSelectedSegment_(selected)
                 for index, button in enumerate(choices.choice_buttons):
+                    assert isinstance(button, LegacyChoiceButton)
+                    assert button.theme is theme
+                    assert button.selection_fill.isEqual_(theme.accent)
                     cell: Any = button.cell()
                     assert cell.showsStateBy() & AK.NSContentsCellMask
                     assert not cell.showsStateBy() & AK.NSChangeGrayCellMask
@@ -602,6 +620,118 @@ def test_legacy_selected_choice_titles_keep_theme_ink(native_controller: Any, na
                     assert normal_color.isEqual_(expected)
                     assert button.target() == choices and button.action() == "segmentPressed:"
     assert controller.game.snapshot() == before
+
+
+def rendered_choice_colors(button: Any) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    """Read the actual selected fill and a solid title pixel from native image rendering."""
+    size: Any = button.bounds().size
+    image: Any = AK.NSImage.alloc().initWithSize_((size.width + 20, size.height))
+    image.lockFocusFlipped_(button.isFlipped())
+    try:
+
+        def render_pair() -> None:
+            """Render reference swatches in the same color-managed image as the control."""
+            button.drawRect_(button.bounds())
+            button.selection_fill.setFill()
+            AK.NSRectFill(((size.width, 0), (10, size.height)))
+            button.theme.controls.selected_text.setFill()
+            AK.NSRectFill(((size.width + 10, 0), (10, size.height)))
+
+        button.effectiveAppearance().performAsCurrentDrawingAppearance_(render_pair)
+    finally:
+        image.unlockFocus()
+    bitmap: Any = AK.NSBitmapImageRep.imageRepWithData_(image.TIFFRepresentation())
+    scale: float = bitmap.pixelsWide() / (size.width + 20)
+    width: int = round(size.width * scale)
+    height: int = bitmap.pixelsHigh()
+    reference_fill: tuple[float, ...] = choice_rgb(
+        bitmap.colorAtX_y_(round((size.width + 5) * scale), height // 2)
+    )
+    expected_ink: tuple[float, ...] = choice_rgb(
+        bitmap.colorAtX_y_(round((size.width + 15) * scale), height // 2)
+    )
+    fill: tuple[float, ...] = choice_rgb(bitmap.colorAtX_y_(int(width * 0.08), height // 2))
+    pixels: list[tuple[float, ...]] = [
+        choice_rgb(bitmap.colorAtX_y_(x, y))
+        for x in range(width // 4, width * 3 // 4)
+        for y in range(height // 4, height * 3 // 4)
+    ]
+    ink: tuple[float, ...] = min(
+        pixels,
+        key=lambda pixel: sum(
+            (first - second) ** 2 for first, second in zip(pixel, expected_ink, strict=True)
+        ),
+    )
+    assert fill == pytest.approx(reference_fill, abs=0.02)
+    assert ink == pytest.approx(expected_ink, abs=0.04)
+    return fill, ink
+
+
+def choice_rgb(color: Any) -> tuple[float, ...]:
+    """Resolve an AppKit color to opaque sRGB components for rendered-pixel comparisons."""
+    resolved: Any = color.colorUsingColorSpace_(AK.NSColorSpace.sRGBColorSpace())
+    return (
+        float(resolved.redComponent()),
+        float(resolved.greenComponent()),
+        float(resolved.blueComponent()),
+    )
+
+
+@pytest.mark.parametrize("native_controller", [True], indirect=True)
+@pytest.mark.parametrize("appearance", ["Light", "Dark"])
+def test_graphite_choices_render_paired_colors_across_key_windows(
+    native_controller: Any, appearance: str
+) -> None:
+    """Keep actual selected pixels readable when the game gains, loses, and regains key status."""
+    controller: Any = native_controller
+    theme: Any = theme_for_name("Default Graphite")
+    controller.preferences.appearance = appearance
+    controller.theme = theme
+    controller.apply_appearance()
+    controller.layout()
+    app: Any = AK.NSApplication.sharedApplication()
+    other: Any = AK.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+        ((100, 100), (240, 120)), AK.NSWindowStyleMaskTitled, AK.NSBackingStoreBuffered, False
+    )
+    other.setReleasedWhenClosed_(False)
+    try:
+        controller.window.makeKeyAndOrderFront_(None)
+        app.activate()
+        assert wait_for_native_state(app, lambda: bool(controller.window.isKeyWindow()))
+        for key_window in (controller.window, other, controller.window):
+            key_window.makeKeyAndOrderFront_(None)
+
+            def is_key(window: Any = key_window) -> bool:
+                """Wait for the specific focus transition before sampling selected pixels."""
+                return bool(window.isKeyWindow())
+
+            assert wait_for_native_state(app, is_key)
+            for key, index in (("order", 1), ("mode", 0)):
+                choices: Any = controller.controls[key]
+                choices.setSelectedSegment_(index)
+                button: Any = choices.choice_buttons[index]
+                actual_fill: tuple[float, ...]
+                actual_ink: tuple[float, ...]
+                actual_fill, actual_ink = rendered_choice_colors(button)
+
+                luminances: list[float] = []
+                for rgb in (actual_fill, actual_ink):
+                    channels: tuple[float, ...] = tuple(
+                        value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+                        for value in rgb
+                    )
+                    luminances.append(
+                        sum(
+                            value * weight
+                            for value, weight in zip(
+                                channels, (0.2126, 0.7152, 0.0722), strict=True
+                            )
+                        )
+                    )
+                assert (max(luminances) + 0.05) / (min(luminances) + 0.05) >= 4.5
+
+    finally:
+        other.close()
 
 
 @pytest.mark.parametrize("native_controller", [True], indirect=True)
@@ -926,6 +1056,10 @@ def test_supported_styles_cover_actions_and_mode_controls(native_controller: Any
         assert isinstance(choices, GlassChoiceControl)
         assert len(choices.choice_buttons) == (2 if key == "order" else 3)
         assert all(button.bezelStyle() == expected_style for button in choices.choice_buttons)
+        assert all(
+            isinstance(button, LegacyChoiceButton) == (expected_style == AK.NSBezelStyleRounded)
+            for button in choices.choice_buttons
+        )
         assert all(contains(choices, button) for button in choices.choice_buttons)
         choices.setSelectedSegment_(0)
         assert (

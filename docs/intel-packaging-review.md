@@ -66,18 +66,25 @@ import, and save/quit/relaunch. These are user-reported results from the Sequoia
 
 ### Selected choice labels in Sequoia Dark mode
 
-The selected Number First/Answers labels were difficult to read on the Intel Mac, while macOS 27
-looked correct. The rounded push-on/push-off cells had a styled normal title but no styled alternate
-title, and retained AppKit's gray-change state flags. The compatibility path now explicitly uses
-the theme's selected title for alternate contents and limits state/highlight changes to the native
-background and press feedback. Glass controls keep their existing setup. Regression checks cover
-all themes, both choice rows, every selection, and Light/Dark/Light transitions. The Intel visual
-retry remains pending; the M4 cannot establish Sequoia's exact rendered pixels.
+The user confirmed the theme is Default Graphite. Its Dark palette pairs dark selected text
+with a light gray accent. On Sequoia, the active native rounded button darkened that accent,
+leaving dark text on a dark fill. Opening About moved focus away and made the selected button's
+background light again. The styled-alternate-title change in 1.1.20 did not resolve this mismatch.
+The earlier 461 native-layout checks verified title metadata, but did not cover rendered selected
+fills through key-window changes.
 
-Local validation of this repair passed all 461 native-layout tests and 136 theme/compatibility
-tests, plus lint, formatting, typing, and whitespace checks. An isolated M4 preview forced the
-rounded compatibility path with Dark appearance, Number First, and Answers selected; its window
-capture showed readable selected labels. The native glass path is outside this rendering change.
+The older-OS choice buttons now draw their selected/pressed accent fill and selected text together,
+using the matched theme colors regardless of window focus. Unselected controls retain native
+rendering; native button activation, selection, accessibility, and keyboard handling remain in
+place. The glass-capable path still creates ordinary NSButtons and keeps its existing rendering.
+
+Local validation passed all 463 native-layout tests, including sampled Graphite fill/title pixels
+in Light and Dark as the game gains, loses, and regains key status. Reference swatches share the
+image's color-management context, and measured text/fill contrast must remain at least 4.5:1.
+All themes and selections still have style/state checks, and legacy bezel-margin layout coverage
+includes the new fallback button. An isolated M4 rounded-control preview captured the actual game
+window active, behind an About-style dialog, and active again; the selected Graphite pair remained
+readable in all captures. The exact Sequoia visual retry is still required.
 
 For the Intel handoff, run the usual command on that Mac after updating the checkout and its
 development dependencies:
