@@ -73,7 +73,7 @@ class LegacyInsetPopUpButton(AK.NSPopUpButton):
 
     def alignmentRectInsets(self) -> Any:
         """Reproduce the 54-by-52 frame surrounding a 40-point alignment rectangle."""
-        return AK.NSEdgeInsetsMake(6, 7, 6, 7)
+        return AK.NSEdgeInsetsMake(5, 7, 7, 7)
 
 
 class LegacyInsetButton(AK.NSButton):
@@ -622,7 +622,7 @@ def test_legacy_selected_choice_titles_keep_theme_ink(native_controller: Any, na
     assert controller.game.snapshot() == before
 
 
-def rendered_choice_bitmap(button: Any) -> Any:
+def rendered_choice_bitmap(button: Any, native_bezel: bool = False) -> Any:
     """Capture a choice with reference colors outside its bounds in one drawing context."""
     size: Any = button.bounds().size
     image: Any = AK.NSImage.alloc().initWithSize_((size.width + 20, size.height))
@@ -631,7 +631,13 @@ def rendered_choice_bitmap(button: Any) -> Any:
 
         def render_pair() -> None:
             """Render reference swatches in the same color-managed image as the control."""
-            button.drawRect_(button.bounds())
+            if native_bezel:
+                cell: Any = button.cell().copy()
+                cell.setState_(AK.NSControlStateValueOff)
+                cell.setHighlighted_(False)
+                cell.drawBezelWithFrame_inView_(button.bounds(), button)
+            else:
+                button.drawRect_(button.bounds())
             button.selection_fill.setFill()
             AK.NSRectFill(((size.width, 0), (10, size.height)))
             button.theme.controls.selected_text.setFill()
@@ -673,13 +679,31 @@ def rendered_choice_colors(button: Any) -> tuple[tuple[float, ...], tuple[float,
     return fill, ink
 
 
-@pytest.mark.parametrize("native_controller", ["legacy-button-insets"], indirect=True)
+def painted_choice_extent(bitmap: Any, point_width: float) -> tuple[int, int, int, int]:
+    """Measure solid bezel edges, excluding the reference strip and faint native shadows."""
+    width: int = round(bitmap.pixelsWide() * point_width / (point_width + 20))
+    height: int = bitmap.pixelsHigh()
+    horizontal: list[float] = [
+        float(bitmap.colorAtX_y_(x, height // 2).alphaComponent()) for x in range(width)
+    ]
+    vertical: list[float] = [
+        float(bitmap.colorAtX_y_(width // 2, y).alphaComponent()) for y in range(height)
+    ]
+    assert max(horizontal) > 0 and max(vertical) > 0
+    horizontal_threshold: float = max(horizontal) / 2
+    vertical_threshold: float = max(vertical) / 2
+    xs: list[int] = [x for x, alpha in enumerate(horizontal) if alpha >= horizontal_threshold]
+    ys: list[int] = [y for y, alpha in enumerate(vertical) if alpha >= vertical_threshold]
+    return min(xs), min(ys), max(xs) + 1, max(ys) + 1
+
+
+@pytest.mark.parametrize("native_controller", [True, "legacy-button-insets"], indirect=True)
 @pytest.mark.parametrize("appearance", ["Light", "Dark"])
 @pytest.mark.parametrize("pressed", [False, True])
-def test_legacy_choice_fill_stays_inside_native_alignment_size(
+def test_legacy_choice_fill_matches_native_painted_size(
     native_controller: Any, appearance: str, pressed: bool
 ) -> None:
-    """Keep selected and pressed pixels within Sequoia's visible, padding-free bezel."""
+    """Match selected/pressed edges to actual native pixels rather than layout padding."""
     controller: Any = native_controller
     controller.preferences.appearance = appearance
     controller.apply_theme(theme_for_name("Default Graphite"))
@@ -689,32 +713,59 @@ def test_legacy_choice_fill_stays_inside_native_alignment_size(
         for index, button in enumerate(choices.choice_buttons):
             choices.setSelectedSegment_(-1)
             original_frame: Any = button.frame()
-            bezel: Any = button.alignmentRectForFrame_(button.bounds())
+            native: Any = rendered_choice_bitmap(button, native_bezel=True)
+            expected: tuple[int, int, int, int] = painted_choice_extent(
+                native, button.bounds().size.width
+            )
             choices.setSelectedSegment_(-1 if pressed else index)
             button.highlight_(pressed)
             try:
                 bitmap: Any = rendered_choice_bitmap(button)
-                scale: float = bitmap.pixelsWide() / (button.bounds().size.width + 20)
-                width: int = round(button.bounds().size.width * scale)
-                height: int = bitmap.pixelsHigh()
-                horizontal_pixels: list[int] = [
-                    x
-                    for x in range(width)
-                    if bitmap.colorAtX_y_(x, height // 2).alphaComponent() > 0.9
-                ]
-                vertical_pixels: list[int] = [
-                    y
-                    for y in range(height)
-                    if bitmap.colorAtX_y_(width // 2, y).alphaComponent() > 0.9
-                ]
-                assert horizontal_pixels and vertical_pixels
-                assert min(horizontal_pixels) >= bezel.origin.x * scale - 1
-                assert max(horizontal_pixels) < AK.NSMaxX(bezel) * scale + 1
-                assert len(horizontal_pixels) == pytest.approx(bezel.size.width * scale, abs=2)
-                assert len(vertical_pixels) == pytest.approx(bezel.size.height * scale, abs=2)
+                actual: tuple[int, int, int, int] = painted_choice_extent(
+                    bitmap, button.bounds().size.width
+                )
+                assert actual == pytest.approx(expected, abs=1), (
+                    key,
+                    button.title(),
+                    actual,
+                    expected,
+                )
                 assert button.frame() == original_frame
             finally:
                 button.highlight_(False)
+
+
+@pytest.mark.parametrize("native_controller", [True], indirect=True)
+def test_legacy_bezel_measurement_is_cached_without_changing_button_state(
+    native_controller: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Measure once per size and keep live selection/highlight state intact during sampling."""
+    choices: Any = native_controller.controls["order"]
+    button: Any = choices.choice_buttons[0]
+    original: Callable[[Any], Any] = LegacyChoiceButton.measure_native_bezel
+    calls: list[Any] = []
+
+    def measure(control: Any) -> Any:
+        """Count native samples while retaining their actual painted geometry."""
+        calls.append(control)
+        return original(control)
+
+    monkeypatch.setattr(LegacyChoiceButton, "measure_native_bezel", measure)
+    button.bezel_cache_key = None
+    for selected in (0, 1, 0):
+        choices.setSelectedSegment_(selected)
+        button.highlight_(True)
+        try:
+            before: tuple[Any, bool] = (button.state(), bool(button.cell().isHighlighted()))
+            rendered_choice_bitmap(button)
+            assert (button.state(), bool(button.cell().isHighlighted())) == before
+        finally:
+            button.highlight_(False)
+    assert calls == [button]
+    size: Any = button.frame().size
+    button.setFrameSize_((size.width + 12, size.height))
+    rendered_choice_bitmap(button)
+    assert calls == [button, button]
 
 
 def choice_rgb(color: Any) -> tuple[float, ...]:

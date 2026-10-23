@@ -4,4 +4,4 @@
 
 """Provide the shared release version for packaging and the native About dialog."""
 
-APP_VERSION: str = "1.1.22"
+APP_VERSION: str = "1.1.23"

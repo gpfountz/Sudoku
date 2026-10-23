@@ -4,9 +4,10 @@ Branch: `codex/feature-older-macos-support`.
 
 The supported source baseline is **macOS Sequoia 15 or newer**, on Intel or Apple
 Silicon. Native controls use rounded fallbacks on Sequoia and retain glass on
-macOS 26 and newer. High Contrast keeps its opaque controls. Standalone
-packaging still targets macOS 27 and Apple Silicon; run this compatibility work from
-source. Source regression validation has passed on the tested Intel Sequoia/OCLP
+macOS 26 and newer. High Contrast keeps its opaque controls. The shared
+`./scripts/build_and_deploy.sh` command builds for the host Mac's architecture and
+macOS major version; see [Intel packaging validation](intel-packaging-review.md).
+Source regression validation has passed on the tested Intel Sequoia/OCLP
 setup. Sonoma 14 is untested and outside the supported range. Its possible
 compatibility paths remain in the code. Sonoma validation and any expansion of
 the supported range are deferred until a tester is available. Remaining hands-on
@@ -18,6 +19,20 @@ Ruff lint and formatting, Mypy, and the dependency-license checks also passed.
 The control fallback was previewed in Light, Dark, and High Contrast. The
 maintainer completed hands-on local validation on October 21, 2026; this step
 is ready for source-based testing on the Intel Sequoia MacBook.
+
+## Faster visual iteration
+
+Use the source entry point for repeated UI checks after updating the checkout:
+
+```sh
+.venv/bin/python launch.py
+```
+
+This is a valid way to check button sizing, colors, and interaction on the Intel
+Sequoia Mac. It avoids rebuilding the bundle for each adjustment. Once the visual
+change is accepted, run `./scripts/build_and_deploy.sh` and check the installed
+app once more: bundle resources, signing, launcher/SDK behavior, and installation
+still need packaged-app validation. Source launches do not replace those checks.
 
 ## Reported Sequoia progress
 

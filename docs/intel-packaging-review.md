@@ -86,13 +86,24 @@ includes the new fallback button. An isolated M4 rounded-control preview capture
 window active, behind an About-style dialog, and active again; the selected Graphite pair remained
 readable in all captures. The Intel user confirmed that 1.1.21 restored readability, but its
 selected fill was larger than the native unselected bezel. That drawing used the full NSButton
-bounds, including Sequoia's invisible frame padding. The follow-up uses AppKit's alignment
-rectangle for the selected/pressed fill, border, and title center. The native button frame and
-layout remain constant across selection changes. Rendering regressions model six-point vertical
-and seven-point horizontal padding, check every choice in Light/Dark and selected/pressed states,
-and reject pixels extending into that padding. All 467 native-layout tests passed locally.
-The corrected size still needs an Intel visual retry after rebuilding through the shared
-deployment script.
+bounds, including Sequoia's invisible frame padding. The alignment-rectangle change in 1.1.22
+passed its 467 local tests, but the Intel user found its selected bezel too shallow in both source
+and packaged runs. Those tests incorrectly treated the alignment rectangle as the painted edge.
+The Intel native probe reported a 180-by-32 frame, top/bottom alignment insets of 5/7, a 166-by-20
+alignment rectangle, and a title rectangle at y=6 with height 16. Layout, painting, and title
+placement need separate geometry.
+
+The current follow-up samples a copy of the native unselected cell's painted bezel and caches
+its visible extent per size, control style, and appearance. The selected/pressed fill and border
+use that measured extent, while title placement uses the cell's native title rectangle. Measuring
+the copy preserves the live button's state. Native unselected painting and modern glass buttons
+are unchanged. Regression checks compare selected/pressed pixel edges directly with native
+unselected bezel pixels in Light and Dark, including asymmetric legacy alignment insets; cache
+and state-preservation checks cover repeat drawing and resizing.
+All 472 native-layout tests passed locally with this correction.
+
+The Intel visual retry should use `.venv/bin/python launch.py` first. After the size is accepted,
+check the packaged app once through the shared deployment script.
 
 For the Intel handoff, run the usual command on that Mac after updating the checkout and its
 development dependencies:

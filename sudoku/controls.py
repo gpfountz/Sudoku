@@ -305,6 +305,73 @@ class LegacyChoiceButton(AK.NSButton):
 
     theme: Theme = DEFAULT_THEME
     selection_fill: Any = DEFAULT_THEME.accent
+    bezel_cache_key: tuple[float, float, int, int, str] | None = None
+    bezel_cache_rect: Any = None
+
+    @objc.python_method
+    def native_bezel_rect(self) -> Any:
+        """Cache the native painted bezel, which differs from its Auto Layout rectangle."""
+        bounds: Any = self.bounds()
+        key: tuple[float, float, int, int, str] = (
+            bounds.size.width,
+            bounds.size.height,
+            int(self.controlSize()),
+            int(self.bezelStyle()),
+            str(self.effectiveAppearance().name()),
+        )
+        if self.bezel_cache_key != key:
+            self.bezel_cache_rect = self.measure_native_bezel()
+            self.bezel_cache_key = key
+        return self.bezel_cache_rect
+
+    @objc.python_method
+    def measure_native_bezel(self) -> Any:
+        """Locate the native unselected bezel without altering the live button's state."""
+        bounds: Any = self.bounds()
+        image: Any = AK.NSImage.alloc().initWithSize_(bounds.size)
+        cell: Any = self.cell().copy()
+        cell.setState_(AK.NSControlStateValueOff)
+        cell.setHighlighted_(False)
+        image.lockFocusFlipped_(self.isFlipped())
+        try:
+            self.effectiveAppearance().performAsCurrentDrawingAppearance_(
+                lambda: cell.drawBezelWithFrame_inView_(bounds, self)
+            )
+        finally:
+            image.unlockFocus()
+        bitmap: Any = AK.NSBitmapImageRep.imageRepWithData_(image.TIFFRepresentation())
+        width: int = bitmap.pixelsWide()
+        height: int = bitmap.pixelsHigh()
+        horizontal: list[float] = [
+            float(bitmap.colorAtX_y_(x, height // 2).alphaComponent()) for x in range(width)
+        ]
+        vertical: list[float] = [
+            float(bitmap.colorAtX_y_(width // 2, y).alphaComponent()) for y in range(height)
+        ]
+        if not horizontal or not vertical or min(max(horizontal), max(vertical)) == 0:
+            # A non-drawing native context can still use the local content rectangle.
+            insets: Any = self.alignmentRectInsets()
+            return AK.NSMakeRect(
+                bounds.origin.x + insets.left,
+                bounds.origin.y + (insets.top if self.isFlipped() else insets.bottom),
+                bounds.size.width - insets.left - insets.right,
+                bounds.size.height - insets.top - insets.bottom,
+            )
+        horizontal_threshold: float = max(horizontal) / 2
+        vertical_threshold: float = max(vertical) / 2
+        xs: list[int] = [x for x, alpha in enumerate(horizontal) if alpha >= horizontal_threshold]
+        ys: list[int] = [y for y, alpha in enumerate(vertical) if alpha >= vertical_threshold]
+        scale_x: float = width / bounds.size.width
+        scale_y: float = height / bounds.size.height
+        origin_y: float = (
+            min(ys) / scale_y if self.isFlipped() else bounds.size.height - (max(ys) + 1) / scale_y
+        )
+        return AK.NSMakeRect(
+            bounds.origin.x + min(xs) / scale_x,
+            bounds.origin.y + origin_y,
+            (max(xs) - min(xs) + 1) / scale_x,
+            (max(ys) - min(ys) + 1) / scale_y,
+        )
 
     def drawRect_(self, dirty: Any) -> None:
         """Draw selected choices without AppKit's focus-dependent accent darkening."""
@@ -313,9 +380,7 @@ class LegacyChoiceButton(AK.NSButton):
         if not selected and not pressed:
             objc.super(LegacyChoiceButton, self).drawRect_(dirty)
             return
-        # Rounded native buttons include invisible padding outside their bezel.
-        # Use the same alignment box instead of painting that extra frame space.
-        bezel: Any = self.alignmentRectForFrame_(self.bounds())
+        bezel: Any = self.native_bezel_rect()
         frame: Any = AK.NSInsetRect(bezel, 0.5, 0.5)
         outline: Any = AK.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(frame, 6, 6)
         self.selection_fill.setFill()
@@ -331,10 +396,11 @@ class LegacyChoiceButton(AK.NSButton):
         )
         title: Any = NSString.stringWithString_(self.title())
         measured: Any = title.sizeWithAttributes_(attributes)
+        title_frame: Any = self.cell().titleRectForBounds_(self.bounds())
         title.drawAtPoint_withAttributes_(
             (
-                frame.origin.x + (frame.size.width - measured.width) / 2,
-                frame.origin.y + (frame.size.height - measured.height) / 2,
+                title_frame.origin.x + (title_frame.size.width - measured.width) / 2,
+                title_frame.origin.y + (title_frame.size.height - measured.height) / 2,
             ),
             attributes,
         )
