@@ -84,7 +84,15 @@ image's color-management context, and measured text/fill contrast must remain at
 All themes and selections still have style/state checks, and legacy bezel-margin layout coverage
 includes the new fallback button. An isolated M4 rounded-control preview captured the actual game
 window active, behind an About-style dialog, and active again; the selected Graphite pair remained
-readable in all captures. The exact Sequoia visual retry is still required.
+readable in all captures. The Intel user confirmed that 1.1.21 restored readability, but its
+selected fill was larger than the native unselected bezel. That drawing used the full NSButton
+bounds, including Sequoia's invisible frame padding. The follow-up uses AppKit's alignment
+rectangle for the selected/pressed fill, border, and title center. The native button frame and
+layout remain constant across selection changes. Rendering regressions model six-point vertical
+and seven-point horizontal padding, check every choice in Light/Dark and selected/pressed states,
+and reject pixels extending into that padding. All 467 native-layout tests passed locally.
+The corrected size still needs an Intel visual retry after rebuilding through the shared
+deployment script.
 
 For the Intel handoff, run the usual command on that Mac after updating the checkout and its
 development dependencies:

@@ -313,7 +313,10 @@ class LegacyChoiceButton(AK.NSButton):
         if not selected and not pressed:
             objc.super(LegacyChoiceButton, self).drawRect_(dirty)
             return
-        frame: Any = AK.NSInsetRect(self.bounds(), 1, 1)
+        # Rounded native buttons include invisible padding outside their bezel.
+        # Use the same alignment box instead of painting that extra frame space.
+        bezel: Any = self.alignmentRectForFrame_(self.bounds())
+        frame: Any = AK.NSInsetRect(bezel, 0.5, 0.5)
         outline: Any = AK.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(frame, 6, 6)
         self.selection_fill.setFill()
         outline.fill()
@@ -330,8 +333,8 @@ class LegacyChoiceButton(AK.NSButton):
         measured: Any = title.sizeWithAttributes_(attributes)
         title.drawAtPoint_withAttributes_(
             (
-                (self.bounds().size.width - measured.width) / 2,
-                (self.bounds().size.height - measured.height) / 2,
+                frame.origin.x + (frame.size.width - measured.width) / 2,
+                frame.origin.y + (frame.size.height - measured.height) / 2,
             ),
             attributes,
         )

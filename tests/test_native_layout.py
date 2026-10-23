@@ -88,8 +88,8 @@ class LegacyInsetChoiceButton(LegacyChoiceButton):
     """Retain legacy native alignment margins around the selected-color fallback."""
 
     def alignmentRectInsets(self) -> Any:
-        """Model the seven-point horizontal bezel extent of older AppKit."""
-        return AK.NSEdgeInsetsMake(0, 7, 0, 7)
+        """Model the native padding around a Sequoia rounded button's visible bezel."""
+        return AK.NSEdgeInsetsMake(6, 7, 6, 7)
 
 
 class LegacyRowMenu(AK.NSMenu):
@@ -622,8 +622,8 @@ def test_legacy_selected_choice_titles_keep_theme_ink(native_controller: Any, na
     assert controller.game.snapshot() == before
 
 
-def rendered_choice_colors(button: Any) -> tuple[tuple[float, ...], tuple[float, ...]]:
-    """Read the actual selected fill and a solid title pixel from native image rendering."""
+def rendered_choice_bitmap(button: Any) -> Any:
+    """Capture a choice with reference colors outside its bounds in one drawing context."""
     size: Any = button.bounds().size
     image: Any = AK.NSImage.alloc().initWithSize_((size.width + 20, size.height))
     image.lockFocusFlipped_(button.isFlipped())
@@ -640,7 +640,13 @@ def rendered_choice_colors(button: Any) -> tuple[tuple[float, ...], tuple[float,
         button.effectiveAppearance().performAsCurrentDrawingAppearance_(render_pair)
     finally:
         image.unlockFocus()
-    bitmap: Any = AK.NSBitmapImageRep.imageRepWithData_(image.TIFFRepresentation())
+    return AK.NSBitmapImageRep.imageRepWithData_(image.TIFFRepresentation())
+
+
+def rendered_choice_colors(button: Any) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    """Read the actual selected fill and a solid title pixel from native image rendering."""
+    size: Any = button.bounds().size
+    bitmap: Any = rendered_choice_bitmap(button)
     scale: float = bitmap.pixelsWide() / (size.width + 20)
     width: int = round(size.width * scale)
     height: int = bitmap.pixelsHigh()
@@ -665,6 +671,50 @@ def rendered_choice_colors(button: Any) -> tuple[tuple[float, ...], tuple[float,
     assert fill == pytest.approx(reference_fill, abs=0.02)
     assert ink == pytest.approx(expected_ink, abs=0.04)
     return fill, ink
+
+
+@pytest.mark.parametrize("native_controller", ["legacy-button-insets"], indirect=True)
+@pytest.mark.parametrize("appearance", ["Light", "Dark"])
+@pytest.mark.parametrize("pressed", [False, True])
+def test_legacy_choice_fill_stays_inside_native_alignment_size(
+    native_controller: Any, appearance: str, pressed: bool
+) -> None:
+    """Keep selected and pressed pixels within Sequoia's visible, padding-free bezel."""
+    controller: Any = native_controller
+    controller.preferences.appearance = appearance
+    controller.apply_theme(theme_for_name("Default Graphite"))
+    controller.layout()
+    for key in ("order", "mode"):
+        choices: Any = controller.controls[key]
+        for index, button in enumerate(choices.choice_buttons):
+            choices.setSelectedSegment_(-1)
+            original_frame: Any = button.frame()
+            bezel: Any = button.alignmentRectForFrame_(button.bounds())
+            choices.setSelectedSegment_(-1 if pressed else index)
+            button.highlight_(pressed)
+            try:
+                bitmap: Any = rendered_choice_bitmap(button)
+                scale: float = bitmap.pixelsWide() / (button.bounds().size.width + 20)
+                width: int = round(button.bounds().size.width * scale)
+                height: int = bitmap.pixelsHigh()
+                horizontal_pixels: list[int] = [
+                    x
+                    for x in range(width)
+                    if bitmap.colorAtX_y_(x, height // 2).alphaComponent() > 0.9
+                ]
+                vertical_pixels: list[int] = [
+                    y
+                    for y in range(height)
+                    if bitmap.colorAtX_y_(width // 2, y).alphaComponent() > 0.9
+                ]
+                assert horizontal_pixels and vertical_pixels
+                assert min(horizontal_pixels) >= bezel.origin.x * scale - 1
+                assert max(horizontal_pixels) < AK.NSMaxX(bezel) * scale + 1
+                assert len(horizontal_pixels) == pytest.approx(bezel.size.width * scale, abs=2)
+                assert len(vertical_pixels) == pytest.approx(bezel.size.height * scale, abs=2)
+                assert button.frame() == original_frame
+            finally:
+                button.highlight_(False)
 
 
 def choice_rgb(color: Any) -> tuple[float, ...]:
