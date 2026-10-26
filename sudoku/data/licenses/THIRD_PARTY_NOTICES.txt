@@ -7,10 +7,10 @@ hashes, and the native libraries present in the reviewed macOS wheels.
 
 Python: Python Software Foundation license and historical notices.
 PyObjC (core, Cocoa, Quartz, Vision): MIT license.
-NumPy: BSD and additional licenses reproduced in the wheel notices.
+NumPy 2.5.4: BSD and additional licenses reproduced in the wheel notices.
 OpenCV Python wrapper: MIT; OpenCV and embedded components: see the full
 upstream LICENSE-3RD-PARTY text, including Apache, BSD, GPL and LGPL notices.
-Setuptools and its vendored helpers: MIT and additional bundled notices.
+Setuptools 84.2.1 and its vendored helpers: MIT and additional bundled notices.
 py2app launcher: MIT or PSF terms; the upstream text is included here.
 Apple frameworks are supplied by macOS and are not redistributed here.
 

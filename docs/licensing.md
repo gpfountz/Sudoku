@@ -48,8 +48,8 @@ obligation has been fulfilled.
 
 ## Dependency and notice maintenance
 
-The current inventory records CPython 3.14.6, PyObjC 12.2.2, NumPy 2.5.3,
-opencv-python-headless 5.0.0.93, py2app 0.28.10, and setuptools 84.0.0. It includes the wheel-supplied license
+The current inventory records CPython 3.14.6, PyObjC 12.2.2, NumPy 2.5.4,
+opencv-python-headless 5.0.0.93, py2app 0.28.10, and setuptools 84.2.1. It includes the wheel-supplied license
 texts, upstream PyObjC notices omitted from two wheels, and SHA-256 hashes of OpenCV's
 bundled native libraries. Source development supports the project's declared Python range.
 For local packaging, the recorded Python version is the minimum reviewed patch: stable
@@ -59,6 +59,8 @@ and other implementations are rejected. All other inventoried versions remain ex
 notice checksums and architecture-specific native-library membership and hashes remain enforced.
 The inventory keeps separate `arm64` and `x86_64` library records; an unreviewed architecture is rejected.
 The [Intel wheel review](intel-packaging-review.md) records the added wheel identities and checks.
+The [October 26 dependency review](dependency-review-2026-10-26.md) records the subsequent
+NumPy and setuptools artifact, notice, and compatibility checks.
 
 On October 19, 2026, the installed Homebrew CPython 3.14.8 (`3.14.8_2`) root `LICENSE` and
 standard-library `LICENSE.txt` both matched the recorded Python 3.14.6 notice exactly, with SHA-256
