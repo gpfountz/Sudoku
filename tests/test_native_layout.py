@@ -1575,8 +1575,11 @@ def test_new_game_dialog_themes_difficulty_and_buttons_without_starting_game(
 
 
 @pytest.mark.parametrize("appearance", [AK.NSAppearanceNameAqua, AK.NSAppearanceNameDarkAqua])
-def test_new_game_level_menu_keeps_default_action(native_controller: Any, appearance: str) -> None:
-    """Keep Start Game available after repeated native difficulty-menu selections."""
+@pytest.mark.parametrize("restore_parent_focus", [False, True])
+def test_new_game_level_menu_keeps_default_action(
+    native_controller: Any, appearance: str, restore_parent_focus: bool
+) -> None:
+    """Return keyboard focus to New Sudoku if menu dismissal activates the game window."""
     controller: Any = native_controller
     controller.regular_game = controller.game
     controller.active_daily_date = None
@@ -1590,6 +1593,8 @@ def test_new_game_level_menu_keeps_default_action(native_controller: Any, appear
     selected_levels: list[str] = []
     button_states: list[tuple[bool, str, bool]] = []
     completed_levels: list[str] = []
+    focus_states: list[bool] = []
+    lost_focus: list[bool] = []
     notifications: Any = AK.NSNotificationCenter.defaultCenter()
     observer: Any = notifications.addObserverForName_object_queue_usingBlock_(
         AK.NSMenuDidSendActionNotification,
@@ -1601,27 +1606,44 @@ def test_new_game_level_menu_keeps_default_action(native_controller: Any, appear
     native_target: Any = primary.target()
     native_action: Any = primary.action()
 
-    def choose_levels(timer: Any) -> None:
-        """Select different levels through genuine native menu tracking before confirming."""
-        for level in ("Expert", "Medium"):
+    def schedule(callback: Callable[[Any], None], mode: str) -> None:
+        """Run the next menu or modal step without nesting another modal event loop."""
+        scheduled: Any = NSTimer.timerWithTimeInterval_repeats_block_(0.05, False, callback)
+        timers.append(scheduled)
+        NSRunLoop.mainRunLoop().addTimer_forMode_(scheduled, mode)
 
-            def choose(timer: Any, level: str = level) -> None:
-                """Activate a themed row while the menu's event tracking loop is running."""
-                popup.itemWithTitle_(level).view().accessibilityPerformPress()
-
-            selection: Any = NSTimer.timerWithTimeInterval_repeats_block_(0.05, False, choose)
-            timers.append(selection)
-            NSRunLoop.mainRunLoop().addTimer_forMode_(selection, AK.NSEventTrackingRunLoopMode)
-            popup.performClick_(None)
-            selected_levels.append(popup.titleOfSelectedItem())
-            button_states.append(
-                (
-                    bool(primary.isEnabled()),
-                    primary.keyEquivalent(),
-                    alert.window().defaultButtonCell() == primary.cell(),
-                )
+    def check_focus(timer: Any) -> None:
+        """Inspect focus on the next modal turn, after menu cleanup and deferred restoration."""
+        focus_states.append(
+            bool(alert.window().isKeyWindow() and application.keyWindow() == alert.window())
+        )
+        button_states.append(
+            (
+                bool(primary.isEnabled()),
+                primary.keyEquivalent(),
+                alert.window().defaultButtonCell() == primary.cell(),
             )
-        primary.performClick_(None)
+        )
+        if len(selected_levels) == 2:
+            primary.performClick_(None)
+        else:
+            schedule(choose_levels, AK.NSModalPanelRunLoopMode)
+
+    def choose_levels(timer: Any) -> None:
+        """Select a level and model AppKit handing keyboard focus back to the game window."""
+        level: str = ("Expert", "Medium")[len(selected_levels)]
+
+        def choose(timer: Any) -> None:
+            """Activate a themed row while the menu's event tracking loop is running."""
+            popup.itemWithTitle_(level).view().accessibilityPerformPress()
+
+        schedule(choose, AK.NSEventTrackingRunLoopMode)
+        popup.performClick_(None)
+        selected_levels.append(popup.titleOfSelectedItem())
+        if restore_parent_focus:
+            controller.window.makeKeyWindow()
+            lost_focus.append(not alert.window().isKeyWindow())
+        schedule(check_focus, AK.NSModalPanelRunLoopMode)
 
     timer: Any = NSTimer.timerWithTimeInterval_repeats_block_(0.1, False, choose_levels)
     guard: Any = NSTimer.timerWithTimeInterval_repeats_block_(
@@ -1631,6 +1653,7 @@ def test_new_game_level_menu_keeps_default_action(native_controller: Any, appear
     for scheduled in (timer, guard):
         NSRunLoop.mainRunLoop().addTimer_forMode_(scheduled, AK.NSModalPanelRunLoopMode)
     try:
+        controller.window.makeKeyAndOrderFront_(None)
         alert.window().makeKeyAndOrderFront_(None)
         application.activate()
         assert wait_for_native_state(
@@ -1639,6 +1662,8 @@ def test_new_game_level_menu_keeps_default_action(native_controller: Any, appear
         assert alert.runModal() == AK.NSAlertFirstButtonReturn
         assert selected_levels == ["Expert", "Medium"]
         assert completed_levels == selected_levels
+        assert focus_states == [True, True]
+        assert lost_focus == ([True, True] if restore_parent_focus else [])
         assert button_states == [(True, "\r", True), (True, "\r", True)]
         assert primary.isEnabled() and primary.alphaValue() == 1
         assert primary.target() == native_target and primary.action() == native_action

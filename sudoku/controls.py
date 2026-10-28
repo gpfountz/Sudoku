@@ -168,6 +168,28 @@ class ThemePopUpButton(AK.NSPopUpButton):
         """Update checks and row widths immediately before a preference menu opens."""
         self.prepare_menu_rows()
 
+    def menuDidClose_(self, menu: Any) -> None:
+        """Restore a modal popup's window after native menu tracking has unwound."""
+        window: Any = self.window()
+        if window is not None and AK.NSApplication.sharedApplication().modalWindow() == window:
+            self.performSelector_withObject_afterDelay_inModes_(
+                "restoreModalFocus:",
+                window,
+                0.0,
+                [AK.NSModalPanelRunLoopMode, AK.NSDefaultRunLoopMode],
+            )
+
+    def restoreModalFocus_(self, window: Any) -> None:
+        """Reclaim focus only for the still-open modal dialog in the active application."""
+        application: Any = AK.NSApplication.sharedApplication()
+        if (
+            application.isActive()
+            and application.modalWindow() == window
+            and window.isVisible()
+            and not window.isKeyWindow()
+        ):
+            window.makeKeyAndOrderFront_(None)
+
     def menu_willHighlightItem_(self, menu: Any, item: Any) -> None:
         """Update custom row highlights during native keyboard and pointer tracking."""
         for choice in menu.itemArray():
