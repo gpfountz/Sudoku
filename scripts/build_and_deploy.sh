@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # See LICENSE for license terms and the warranty disclaimer.
 
-# Build, verify, and install Sudoku using this checkout's virtual environment.
+# Update dependencies, build, verify, and install Sudoku using this checkout's environment.
 set -euo pipefail
 
 project_dir="$(cd -- "$(dirname -- "$0")/.." && pwd -P)"
@@ -45,7 +45,7 @@ trap 'exit 143' TERM
 
 cd "$project_dir"
 if [[ ! -x .venv/bin/python ]]; then
-    printf 'Create the project .venv and install requirements-dev.txt before building.\n' >&2
+    printf 'Create the project .venv with the packaging Python before building.\n' >&2
     exit 1
 fi
 
@@ -55,6 +55,11 @@ fi
 release_dir="$(.venv/bin/python -m sudoku.build_paths "$release_dir")"
 applications_dir="$(.venv/bin/python -m sudoku.build_paths "$applications_dir")"
 installed_bundle="$applications_dir/Sudoku.app"
+
+printf 'Installing reviewed dependencies from requirements-dev.txt...\n'
+.venv/bin/python -m pip install -r requirements-dev.txt
+printf 'Checking dependency versions and license notices...\n'
+.venv/bin/python -m sudoku.license_checks
 
 .venv/bin/python scripts/build_app.py --output-dir "$release_dir"
 extraction_dir="$(mktemp -d /private/tmp/sudoku-extracted.XXXXXX)"

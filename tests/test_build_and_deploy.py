@@ -21,7 +21,15 @@ case "$tool" in
         if [[ "$1" == -m && "$2" == sudoku.build_paths ]]; then
             exec "$SUDOKU_TEST_PYTHON" "$@"
         fi
-        step=build
+        if [[ "$1" == -m && "$2" == pip ]]; then
+            [[ "$*" == '-m pip install -r requirements-dev.txt' ]]
+            step=dependencies
+        elif [[ "$1" == -m && "$2" == sudoku.license_checks ]]; then
+            [[ "$#" == 2 ]]
+            step=licenses
+        else
+            step=build
+        fi
         ;;
     ditto)
         if [[ "$1" == -x ]]; then step=extract; else step=copy; fi
@@ -51,6 +59,7 @@ printf '%s\n' "$step" >> "$SUDOKU_TEST_LOG"
 if [[ "$step" == "${SUDOKU_TEST_FAILURE:-}" ]]; then exit 19; fi
 case "$tool" in
     python)
+        if [[ "$step" != build ]]; then exit 0; fi
         [[ "$2" == --output-dir ]]
         printf '%s\n' "$3" > "$SUDOKU_TEST_RELEASE_FILE"
         mkdir -p "$3/Sudoku.app/Contents/Resources"
@@ -142,6 +151,8 @@ def test_build_and_deploy_replaces_bundle(deployment_check: DeploymentCheck) -> 
     assert not (resources / "retired.txt").exists()
     assert (deployment_check.release / "Sudoku.zip").is_file()
     assert deployment_check.log.read_text().splitlines() == [
+        "dependencies",
+        "licenses",
         "build",
         "extract",
         "verify-extracted",
@@ -157,18 +168,33 @@ def test_build_and_deploy_replaces_bundle(deployment_check: DeploymentCheck) -> 
 
 
 @pytest.mark.parametrize(
-    "failure", ["build", "extract", "verify-extracted", "copy", "verify-staged", "quit"]
+    "failure",
+    [
+        "dependencies",
+        "licenses",
+        "build",
+        "extract",
+        "verify-extracted",
+        "copy",
+        "verify-staged",
+        "quit",
+    ],
 )
 def test_failed_preparation_keeps_installed_bundle(
     deployment_check: DeploymentCheck, failure: str
 ) -> None:
-    """Build, copy, signature, or quit failures must leave the existing app untouched."""
+    """Preparation failures must stop subsequent steps and leave the existing app untouched."""
     result: subprocess.CompletedProcess[str] = deployment_check.run(failure)
     assert result.returncode != 0
     resources: Path = deployment_check.applications / "Sudoku.app/Contents/Resources"
     assert (resources / "version.txt").read_text() == "previous bundle\n"
     assert (resources / "retired.txt").is_file()
-    assert "backup" not in deployment_check.log.read_text().splitlines()
+    steps: list[str] = deployment_check.log.read_text().splitlines()
+    assert steps[-1] == failure
+    assert "backup" not in steps
+    if failure in ("dependencies", "licenses"):
+        assert "build" not in steps
+        assert not deployment_check.used_release.exists()
     assert not list(deployment_check.applications.glob(".sudoku-install.*"))
 
 

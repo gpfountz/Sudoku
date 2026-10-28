@@ -195,12 +195,11 @@ puzzle progress. The board's `Background` object draws the themed surface.
 
 ## Building and installing
 
-Use the exact [packaging Python](#packaging-python) and current `requirements-dev.txt` before building.
+Create `.venv` with the supported [packaging Python](#packaging-python) before building.
 Use the same command on every supported Mac. Xcode or Command Line Tools must provide an SDK
 for the build Mac's macOS major version or newer. From the project directory:
 
 ```sh
-.venv/bin/python -m sudoku.license_checks
 ./scripts/build_and_deploy.sh
 ```
 
@@ -216,7 +215,11 @@ See the [licensing guide](licensing.md#publishing-a-standalone-app) before publi
 the current OpenCV wheel has an unresolved native-library provenance issue. A successful local
 build or installation does not clear that release requirement.
 
-[`scripts/build_and_deploy.sh`](../scripts/build_and_deploy.sh) runs this checkout's build script,
+[`scripts/build_and_deploy.sh`](../scripts/build_and_deploy.sh) installs the pinned dependencies
+from `requirements-dev.txt` into this checkout's `.venv` and verifies their versions and license
+notices before building. After `git pull`, run the same command; dependency updates are automatic.
+An installation or license-check failure stops deployment before changing the installed app.
+It then runs this checkout's build script,
 extracts and verifies the ZIP, asks a running Sudoku to quit, and installs the verified app at
 `~/Applications/Sudoku.app`. It restores the previous app if replacement or installed signature
 verification fails. Temporary extraction and installation files are cleaned up, and your saved
