@@ -1528,7 +1528,9 @@ def test_themed_dropdown_keeps_native_menu_selection(
         discard_menu_test_input(application)
 
 
-@pytest.mark.parametrize("theme", [DEFAULT_THEME, WARM_PAPER_THEME])
+@pytest.mark.parametrize(
+    "theme", [DEFAULT_THEME, WARM_PAPER_THEME, theme_for_name("Default Graphite")]
+)
 def test_new_game_dialog_themes_difficulty_and_buttons_without_starting_game(
     native_controller: Any, theme: Any
 ) -> None:
@@ -1554,7 +1556,7 @@ def test_new_game_dialog_themes_difficulty_and_buttons_without_starting_game(
         ]
         assert alert.buttons()[0].keyEquivalent() == "\r"
         assert alert.buttons()[1].keyEquivalent() == "\x1b"
-        if theme is WARM_PAPER_THEME:
+        if theme is not DEFAULT_THEME:
             assert alert.buttons()[0].bezelColor() is None
             assert alert.buttons()[0].layer().filters()
             assert all(isinstance(item.view(), ThemeMenuRow) for item in popup.itemArray())
@@ -1569,6 +1571,83 @@ def test_new_game_dialog_themes_difficulty_and_buttons_without_starting_game(
             assert all(item.view() is None for item in popup.itemArray())
         assert controller.game.snapshot() == before
     finally:
+        alert.window().close()
+
+
+@pytest.mark.parametrize("appearance", [AK.NSAppearanceNameAqua, AK.NSAppearanceNameDarkAqua])
+def test_new_game_level_menu_keeps_default_action(native_controller: Any, appearance: str) -> None:
+    """Keep Start Game available after repeated native difficulty-menu selections."""
+    controller: Any = native_controller
+    controller.regular_game = controller.game
+    controller.active_daily_date = None
+    controller.window.setAppearance_(AK.NSAppearance.appearanceNamed_(appearance))
+    controller.apply_theme(theme_for_name("Default Graphite"))
+    before: object = controller.game.snapshot()
+    alert: Any = controller.build_new_game_dialog()
+    popup: Any = alert.accessoryView()
+    primary: Any = alert.buttons()[0]
+    application: Any = AK.NSApplication.sharedApplication()
+    selected_levels: list[str] = []
+    button_states: list[tuple[bool, str, bool]] = []
+    completed_levels: list[str] = []
+    notifications: Any = AK.NSNotificationCenter.defaultCenter()
+    observer: Any = notifications.addObserverForName_object_queue_usingBlock_(
+        AK.NSMenuDidSendActionNotification,
+        popup.menu(),
+        None,
+        lambda notification: completed_levels.append(popup.titleOfSelectedItem()),
+    )
+    timers: list[Any] = []
+    native_target: Any = primary.target()
+    native_action: Any = primary.action()
+
+    def choose_levels(timer: Any) -> None:
+        """Select different levels through genuine native menu tracking before confirming."""
+        for level in ("Expert", "Medium"):
+
+            def choose(timer: Any, level: str = level) -> None:
+                """Activate a themed row while the menu's event tracking loop is running."""
+                popup.itemWithTitle_(level).view().accessibilityPerformPress()
+
+            selection: Any = NSTimer.timerWithTimeInterval_repeats_block_(0.05, False, choose)
+            timers.append(selection)
+            NSRunLoop.mainRunLoop().addTimer_forMode_(selection, AK.NSEventTrackingRunLoopMode)
+            popup.performClick_(None)
+            selected_levels.append(popup.titleOfSelectedItem())
+            button_states.append(
+                (
+                    bool(primary.isEnabled()),
+                    primary.keyEquivalent(),
+                    alert.window().defaultButtonCell() == primary.cell(),
+                )
+            )
+        primary.performClick_(None)
+
+    timer: Any = NSTimer.timerWithTimeInterval_repeats_block_(0.1, False, choose_levels)
+    guard: Any = NSTimer.timerWithTimeInterval_repeats_block_(
+        3, False, lambda timer: application.abortModal()
+    )
+    timers.extend((timer, guard))
+    for scheduled in (timer, guard):
+        NSRunLoop.mainRunLoop().addTimer_forMode_(scheduled, AK.NSModalPanelRunLoopMode)
+    try:
+        alert.window().makeKeyAndOrderFront_(None)
+        application.activate()
+        assert wait_for_native_state(
+            application, lambda: bool(application.isActive() and alert.window().isKeyWindow())
+        )
+        assert alert.runModal() == AK.NSAlertFirstButtonReturn
+        assert selected_levels == ["Expert", "Medium"]
+        assert completed_levels == selected_levels
+        assert button_states == [(True, "\r", True), (True, "\r", True)]
+        assert primary.isEnabled() and primary.alphaValue() == 1
+        assert primary.target() == native_target and primary.action() == native_action
+        assert primary.layer().filters()
+        assert controller.game.snapshot() == before
+    finally:
+        notifications.removeObserver_(observer)
+        for scheduled in timers:
+            scheduled.invalidate()
         alert.window().close()
 
 

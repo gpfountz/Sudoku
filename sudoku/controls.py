@@ -248,15 +248,14 @@ class ThemeMenuRow(AK.NSView):
 
     @objc.python_method
     def activate(self) -> None:
-        """Choose the clicked item and send the popup's existing preference action once."""
+        """Finish native popup selection so the enclosing dialog restores its button state."""
         popup: Any = self.popup_ref()
         item: Any = self.enclosingMenuItem()
         if popup is None or item is None:
             return
-        popup.selectItem_(item)
-        item.menu().cancelTracking()
-        if popup.action() is not None:
-            popup.sendAction_to_(popup.action(), popup.target())
+        menu: Any = item.menu()
+        menu.cancelTracking()
+        menu.performActionForItemAtIndex_(menu.indexOfItem_(item))
 
     def mouseUp_(self, event: Any) -> None:
         """Choose a menu row on release using the native popup selection interface."""
