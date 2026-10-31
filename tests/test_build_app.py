@@ -23,6 +23,7 @@ from scripts.build_app import (
     build_launcher,
     main,
     native_build_target,
+    prepare_launcher_source,
     publish_build,
     sign_bundle,
     verify_launcher_sdk,
@@ -117,6 +118,40 @@ def test_compile_native_launcher(target: BuildTarget, tmp_path: Path) -> None:
     assert command[command.index("-arch") + 1] == target.architecture
     assert f"-mmacosx-version-min={target.minimum_macos}" in command
     verify.assert_called_once_with(tmp_path / "launcher", target)
+
+
+@pytest.mark.parametrize("change", ["signature", "duplicate"])
+def test_launcher_source_drift_stops_build(tmp_path: Path, change: str) -> None:
+    """Reject an unreviewed upstream error handler rather than silently misapplying its fix."""
+    upstream: Path = Path(str(files("py2app.apptemplate").joinpath("src/main.c")))
+    content: str = upstream.read_text(encoding="utf-8")
+    if change == "signature":
+        content = content.replace("py2app_openConsole(void)", "py2app_openConsole(int flags)")
+    else:
+        content = content.replace("USES(LSOpenFSRef);", "USES(LSOpenFSRef);\nUSES(LSOpenFSRef);")
+    source: Path = tmp_path / "upstream.c"
+    source.write_text(content, encoding="utf-8")
+    destination: Path = tmp_path / "launcher.c"
+    with pytest.raises(RuntimeError, match="Review the changed py2app launcher"):
+        prepare_launcher_source(source, destination)
+    assert not destination.exists()
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="Requires the macOS SDK and compiler")
+@pytest.mark.parametrize("architecture", ["arm64", "x86_64"])
+def test_native_launcher_compiles_without_warnings(
+    tmp_path: Path, capfd: pytest.CaptureFixture[str], architecture: str
+) -> None:
+    """Compile both native slices with real SDK checks while preserving the installed source."""
+    upstream: Path = Path(str(files("py2app.apptemplate").joinpath("src/main.c")))
+    original: bytes = upstream.read_bytes()
+    sdk: str = subprocess.check_output(
+        ["xcrun", "--sdk", "macosx", "--show-sdk-version"], text=True
+    ).strip()
+    target: BuildTarget = BuildTarget(architecture, "15.0", sdk, "15.8.1")
+    build_launcher(tmp_path / "launcher", target)
+    assert capfd.readouterr().err == ""
+    assert upstream.read_bytes() == original
 
 
 @pytest.mark.parametrize(

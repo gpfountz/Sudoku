@@ -26,6 +26,33 @@ from sudoku.version import APP_VERSION
 ROOT: Path = Path(__file__).resolve().parents[1]
 MINIMUM_MACOS_VERSION: str = "15.0"
 
+CONSOLE_LAUNCHER: str = """static int py2app_openConsole(void) {
+    id workspace = ((id(*)(id, SEL))py2app_objc_msgSend)(
+        py2app_objc_getClass("NSWorkspace"), py2app_sel_getUid("sharedWorkspace"));
+    id consoleURL = ((id(*)(id, SEL, id))py2app_objc_msgSend)(
+        workspace, py2app_sel_getUid("URLForApplicationWithBundleIdentifier:"),
+        py2app_CFSTR(ERR_CONSOLEAPP));
+    if (!consoleURL) return kLSApplicationNotFoundErr;
+    BOOL opened = ((BOOL(*)(id, SEL, id))py2app_objc_msgSend)(
+        workspace, py2app_sel_getUid("openURL:"), consoleURL);
+    return opened ? noErr : kLSUnknownErr;
+}
+"""
+
+LEGACY_CONSOLE_LAUNCHER: str = """static int py2app_openConsole(void) {
+    OSStatus err;
+    FSRef consoleRef;
+    err = py2app_LSFindApplicationForInfo(
+        kLSUnknownCreator,
+        NULL,
+        py2app_CFSTR(ERR_CONSOLEAPP),
+        &consoleRef,
+        NULL);
+    if (err != noErr) return err;
+    return py2app_LSOpenFSRef((const FSRef *)&consoleRef, NULL);
+}
+"""
+
 
 @dataclass(frozen=True)
 class BuildTarget:
@@ -57,9 +84,32 @@ def native_build_target() -> BuildTarget:
     return BuildTarget(architecture, f"{major}.0", sdk, host)
 
 
+def prepare_launcher_source(source: Path, destination: Path) -> None:
+    """Replace the reviewed legacy Console path in a private build copy, rejecting drift."""
+    content: str = source.read_text(encoding="utf-8")
+    replacements: tuple[tuple[str, str], ...] = (
+        (
+            'static const char *ERR_CONSOLEAPP = "Console.app";',
+            'static const char *ERR_CONSOLEAPP = "com.apple.Console";',
+        ),
+        ("USES(LSOpenFSRef);\n", ""),
+        ("USES(LSFindApplicationForInfo);\n", ""),
+        ("    LOOKUP(LSOpenFSRef);\n", ""),
+        ("    LOOKUP(LSFindApplicationForInfo);\n", ""),
+        (LEGACY_CONSOLE_LAUNCHER, CONSOLE_LAUNCHER),
+    )
+    for previous, replacement in replacements:
+        if content.count(previous) != 1:
+            raise RuntimeError("Review the changed py2app launcher before building Sudoku.")
+        content = content.replace(previous, replacement, 1)
+    destination.write_text(content, encoding="utf-8")
+
+
 def build_launcher(destination: Path, target: BuildTarget) -> None:
     """Compile a native launcher with the selected SDK, leaving py2app untouched."""
-    source: Path = Path(str(files("py2app.apptemplate").joinpath("src/main.c")))
+    upstream: Path = Path(str(files("py2app.apptemplate").joinpath("src/main.c")))
+    source: Path = destination.with_suffix(".c")
+    prepare_launcher_source(upstream, source)
     subprocess.run(
         [
             "xcrun",

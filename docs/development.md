@@ -257,6 +257,11 @@ The shared shell command calls `scripts/build_app.py`. It recompiles py2app's la
 selected native architecture and SDK, checks its deployment target against the app plist, and
 checks every bundled Mach-O binary for the required architecture and a compatible minimum macOS.
 A Python runtime or dependency requiring a newer macOS stops the build before installation.
+The builder adapts a temporary copy of py2app 0.28.10's launcher so its startup-error dialog's
+**Open Console** button finds Console by bundle identifier and opens its URL through
+`NSWorkspace`. This replaces deprecated Launch Services calls without editing the installed
+dependency or disabling compiler diagnostics. A changed upstream source fragment stops the
+build for review. See the [launcher warning review](launcher-warning-review.md).
 It signs the finished bundle and verifies its signature. Direct `setup.py py2app` builds omit
 this launcher replacement and can use legacy AppKit appearance. `scripts/create_icon.py` renders
 the code-defined icon with Cocoa.
