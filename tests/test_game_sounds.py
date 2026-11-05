@@ -7,7 +7,7 @@
 from threading import Event, get_ident
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 import pytest
 
@@ -69,8 +69,50 @@ def test_answer_feedback_can_draw_while_the_first_buzz_loads(
         sounds._worker.shutdown()
 
 
-def test_muting_discards_a_cue_still_loading(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Prevent a cold cue from starting after the player turns sound off."""
+def test_prepare_loads_all_cues_and_warms_a_silent_copy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Prepare audio before input while keeping the buzzer available at full volume."""
+    sounds: GameSounds = GameSounds()
+    main_thread: int = get_ident()
+    buzzer: Mock = Mock()
+    buzzer.play.return_value = True
+    warmup: Mock = buzzer.copy.return_value
+    warmup.play.return_value = True
+    loaded: list[str] = []
+
+    def load(name: str) -> Mock:
+        """Track which files were decoded on the background worker."""
+        assert get_ident() != main_thread
+        loaded.append(name)
+        return buzzer if name == "incorrect" else Mock()
+
+    monkeypatch.setattr("sudoku.game_sounds.load_game_sound", load)
+    try:
+        sounds.prepare()
+        sounds._worker.submit(lambda: None).result(timeout=5)
+        assert loaded == ["incorrect", "good", "great", "excellent"]
+        assert warmup.method_calls == [call.setVolume_(0.0), call.play()]
+        buzzer.setVolume_.assert_not_called()
+        buzzer.play.assert_not_called()
+
+        sounds.play("incorrect")
+        sounds._worker.submit(lambda: None).result(timeout=5)
+        assert loaded.count("incorrect") == 1
+        buzzer.play.assert_called_once_with()
+        sounds.stop()
+        sounds._worker.submit(lambda: None).result(timeout=5)
+        warmup.stop.assert_called_once_with()
+        buzzer.stop.assert_called_once_with()
+    finally:
+        sounds._worker.shutdown()
+
+
+@pytest.mark.parametrize("prepare", [False, True])
+def test_muting_discards_a_cue_still_loading(
+    monkeypatch: pytest.MonkeyPatch, prepare: bool
+) -> None:
+    """Cancel playback and silent preparation that are still loading when muted."""
     sounds: GameSounds = GameSounds()
     loading: Event = Event()
     ready: Event = Event()
@@ -85,12 +127,16 @@ def test_muting_discards_a_cue_still_loading(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr("sudoku.game_sounds.load_game_sound", load)
     try:
-        sounds.play("incorrect")
+        if prepare:
+            sounds.prepare()
+        else:
+            sounds.play("incorrect")
         assert loading.wait(5)
         sounds.stop()
         ready.set()
         sounds._worker.submit(lambda: None).result(timeout=5)
         buzzer.play.assert_not_called()
+        buzzer.copy.assert_not_called()
         sounds.play("incorrect")
         sounds._worker.submit(lambda: None).result(timeout=5)
         buzzer.play.assert_called_once_with()

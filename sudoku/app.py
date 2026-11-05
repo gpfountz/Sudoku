@@ -14,7 +14,7 @@ from typing import Any
 
 import AppKit as AK
 import objc
-from Foundation import NSBundle, NSNotificationCenter, NSObject, NSTimer
+from Foundation import NSBundle, NSObject, NSRunLoop, NSTimer
 from PyObjCTools import AppHelper
 
 from sudoku.board import SudokuBoard
@@ -99,6 +99,8 @@ class AppController(NSObject):
         self.history_window = None
         self.statistics_window = None
         self.preferences = self.store.load_preferences()
+        if self.preferences.game_sounds:
+            game_sounds.prepare()
         self.theme = theme_for_name(self.preferences.theme)
         try:
             self.catalog = load_catalog()
@@ -720,36 +722,36 @@ class AppController(NSObject):
             "Puzzle complete", f"{rank} solve\n\n{message}" if rank else message
         )
         panel: Any = alert.window()
-        notifications: Any = NSNotificationCenter.defaultCenter()
-        # NSAlert centers itself before making its window key.
-        position_observer: Any = notifications.addObserverForName_object_queue_usingBlock_(
-            AK.NSWindowDidBecomeKeyNotification,
-            panel,
-            None,
-            lambda notification: self.position_completion_alert(panel),
+        board_frame: Any = self.window.convertRectToScreen_(
+            self.board.convertRect_toView_(self.board.bounds(), None)
         )
         overlay: CompletionOverlay | None = None
-        try:
+
+        def show_effects(timer: Any) -> None:
+            """Place the alert before ordering the click-through overlay above it."""
+            nonlocal overlay
+            self.position_completion_alert(panel, board_frame)
             if not AK.NSWorkspace.sharedWorkspace().accessibilityDisplayShouldReduceMotion():
-                overlay = CompletionOverlay.alloc().initWithFrame_(self.board.bounds())
-                overlay.setAutoresizingMask_(AK.NSViewWidthSizable | AK.NSViewHeightSizable)
-                overlay.setAccessibilityElement_(False)
-                overlay.setClipsToBounds_(True)
-                overlay.start(celebration_level(game.puzzle.level, rank))
-                self.board.addSubview_(overlay)
+                frame: Any = AK.NSUnionRect(board_frame, panel.frame())
+                overlay = CompletionOverlay.alloc().initWithFrame_(
+                    AK.NSMakeRect(0, 0, frame.size.width, frame.size.height)
+                )
+                overlay.start(celebration_level(game.puzzle.level, rank), panel, frame)
+
+        # NSAlert centers itself before entering the modal loop.
+        presentation: Any = NSTimer.timerWithTimeInterval_repeats_block_(0.001, False, show_effects)
+        NSRunLoop.mainRunLoop().addTimer_forMode_(presentation, AK.NSModalPanelRunLoopMode)
+        try:
             self.play_game_sound((rank or "Good").lower())
             alert.runModal()
         finally:
-            notifications.removeObserver_(position_observer)
+            presentation.invalidate()
             if overlay is not None:
                 overlay.stop()
 
     @objc.python_method
-    def position_completion_alert(self, panel: Any) -> None:
+    def position_completion_alert(self, panel: Any, board_frame: Any) -> None:
         """Center the native alert over the grid, within the visible screen."""
-        board_frame: Any = self.window.convertRectToScreen_(
-            self.board.convertRect_toView_(self.board.bounds(), None)
-        )
         frame: Any = panel.frame()
         x: float = AK.NSMidX(board_frame) - frame.size.width / 2
         y: float = AK.NSMidY(board_frame) - frame.size.height / 2
@@ -1616,8 +1618,11 @@ class AppController(NSObject):
             self.set_daily_enabled(bool(value))
             return
         setattr(self.preferences, key, value)
-        if key == "game_sounds" and not value:
-            game_sounds.stop()
+        if key == "game_sounds":
+            if value:
+                game_sounds.prepare()
+            else:
+                game_sounds.stop()
         if key == "theme":
             self.theme = theme_for_name(self.preferences.theme)
         minimum_index: int = LEVELS.index(self.preferences.daily_minimum)

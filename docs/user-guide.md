@@ -207,7 +207,7 @@ distinct cell and wrong digit once, including after Undo. These counters survive
 placements. **Good** celebrates every other solve. Each logical hint counts once for ranking even if
 you read every stage. Elapsed time appears in the summary.
 
-Numbered Sudoku tiles sweep across the solved grid while the result is open. Each step in difficulty
+Numbered Sudoku tiles sweep across the solved grid and result window. Each step in difficulty
 adds one level of celebration, and each step in rank adds two, for ten levels in all. macOS Reduce
 Motion shows the result with a static board. Attempts started before rank tracking show the original
 counts and receive a celebration based on difficulty.

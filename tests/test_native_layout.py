@@ -1765,7 +1765,7 @@ def test_header_level_is_read_only_for_catalog_and_completed_games(
 def test_completion_overlay_runs_during_native_alert(
     native_controller: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Place the result above the solved board and dismiss it while tiles are active."""
+    """Draw above the alert and keep OK usable while the tiles are active."""
     controller: Any = native_controller
     controller.game.values = list(controller.game.puzzle.solution)
     controller.game.completion_rank = "Excellent"
@@ -1773,6 +1773,8 @@ def test_completion_overlay_runs_during_native_alert(
     reduce_motion: bool = AK.NSWorkspace.sharedWorkspace().accessibilityDisplayShouldReduceMotion()
     controller.window.orderFront_(None)
     observed: list[tuple[str, str, int, Any]] = []
+    overlay_windows: list[Any] = []
+    order: list[tuple[int, int]] = []
     drawn: list[float] = []
     builder: Any = controller.build_message_dialog
     draw_tile: Any = CompletionOverlay.draw_tile
@@ -1784,12 +1786,14 @@ def test_completion_overlay_runs_during_native_alert(
 
     monkeypatch.setattr(CompletionOverlay, "draw_tile", draw)
     positioned: list[Any] = []
+    board_frames: list[Any] = []
     position_alert: Any = controller.position_completion_alert
 
-    def position(panel: Any) -> None:
-        """Record where the app places the alert before AppKit enters its modal loop."""
-        position_alert(panel)
+    def position(panel: Any, board_frame: Any) -> None:
+        """Record where the app places the alert after AppKit's initial placement."""
+        position_alert(panel, board_frame)
         positioned.append(panel.frame())
+        board_frames.append(board_frame)
 
     controller.position_completion_alert = position
 
@@ -1799,17 +1803,23 @@ def test_completion_overlay_runs_during_native_alert(
 
         def confirm(timer: Any) -> None:
             """Record the active overlay and dismiss via the real button."""
-            overlay: Any = next(
+            panel: Any = alert.window()
+            overlay_window: Any = next(
                 (
-                    view
-                    for view in controller.board.subviews()
-                    if isinstance(view, CompletionOverlay)
+                    child
+                    for child in (panel.childWindows() or ())
+                    if isinstance(child.contentView(), CompletionOverlay)
                 ),
                 None,
             )
-            count: int = len(overlay.tiles) if overlay is not None else 0
-            observed.append((title, message, count, alert.window().frame()))
-            alert.buttons()[0].performClick_(None)
+            count: int = 0
+            if overlay_window is not None:
+                overlay_windows.append(overlay_window)
+                count = len(overlay_window.contentView().tiles)
+                order.append((overlay_window.orderedIndex(), panel.orderedIndex()))
+            observed.append((title, message, count, panel.frame()))
+            button: Any = alert.buttons()[0]
+            button.performClick_(None)
 
         timer: Any = NSTimer.timerWithTimeInterval_repeats_block_(0.18, False, confirm)
         NSRunLoop.mainRunLoop().addTimer_forMode_(timer, AK.NSModalPanelRunLoopMode)
@@ -1833,7 +1843,16 @@ def test_completion_overlay_runs_during_native_alert(
     assert bool(drawn) != reduce_motion
     assert panel_frame.origin.x == pytest.approx(positioned[0].origin.x, abs=1)
     assert panel_frame.origin.y == pytest.approx(positioned[0].origin.y, abs=1)
-    assert all(not isinstance(view, CompletionOverlay) for view in controller.board.subviews())
+    if not reduce_motion:
+        assert len(overlay_windows) == 1
+        window: Any = overlay_windows[0]
+        assert window.ignoresMouseEvents() and not window.canBecomeKeyWindow()
+        assert not window.isOpaque()
+        overlay_index, panel_index = order[0]
+        assert overlay_index < panel_index, order
+        assert AK.NSContainsRect(window.frame(), panel_frame)
+        assert AK.NSContainsRect(window.frame(), board_frames[0])
+        assert window.parentWindow() is None and not window.isVisible()
 
 
 @pytest.mark.parametrize("name", ["Default", "Warm Paper", "High Contrast"])

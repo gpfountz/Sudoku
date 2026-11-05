@@ -67,32 +67,43 @@ class Tile:
 
 
 class CompletionOverlay(AK.NSView):
-    """Paint above the board and below the native completion alert."""
+    """Paint above the puzzle and alert in a window that passes through mouse input."""
 
     started: float
     duration: float
     tiles: tuple[Tile, ...]
-    timer: Any
+    timer: Any = None
+    overlay_window: Any = None
 
     def isFlipped(self) -> bool:
         """Use the same top-down coordinate system as the puzzle grid."""
         return True
 
-    def hitTest_(self, point: Any) -> None:
-        """Let AppKit handle input as if this decorative view were absent."""
-        return None
-
     @objc.python_method
-    def start(self, intensity: int) -> None:
+    def start(self, intensity: int, panel: Any, frame: Any) -> None:
         """Initialize the burst and animate while the native alert is open."""
         count: int
         launches: int
         count, launches, self.duration = CELEBRATIONS[intensity - 1]
         self.tiles = self.make_tiles(intensity, count, launches)
+        window: Any = AK.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+            frame, AK.NSWindowStyleMaskBorderless, AK.NSBackingStoreBuffered, False
+        )
+        window.setReleasedWhenClosed_(False)
+        window.setOpaque_(False)
+        window.setBackgroundColor_(AK.NSColor.clearColor())
+        window.setHasShadow_(False)
+        window.setIgnoresMouseEvents_(True)
+        window.setLevel_(panel.level())
+        self.setAccessibilityElement_(False)
+        self.setClipsToBounds_(True)
+        window.setContentView_(self)
+        self.overlay_window = window
         self.started = monotonic()
         self.timer = NSTimer.timerWithTimeInterval_repeats_block_(1 / 45, True, self.advance)
         NSRunLoop.mainRunLoop().addTimer_forMode_(self.timer, AK.NSModalPanelRunLoopMode)
         self.setNeedsDisplay_(True)
+        panel.addChildWindow_ordered_(window, AK.NSWindowAbove)
 
     @objc.python_method
     def make_tiles(self, intensity: int, count: int, launches: int) -> tuple[Tile, ...]:
@@ -127,7 +138,7 @@ class CompletionOverlay(AK.NSView):
 
     @objc.python_method
     def advance(self, timer: Any) -> None:
-        """Refresh the non-key puzzle window during the AppKit modal loop."""
+        """Refresh the overlay during the AppKit modal loop."""
         if (
             monotonic() - self.started >= self.duration
             or AK.NSWorkspace.sharedWorkspace().accessibilityDisplayShouldReduceMotion()
@@ -139,14 +150,19 @@ class CompletionOverlay(AK.NSView):
 
     @objc.python_method
     def stop(self) -> None:
-        """Release the timer and remove the overlay on completion or dismissal."""
+        """Release the timer and close the overlay on completion or dismissal."""
         if self.timer is not None:
             self.timer.invalidate()
             self.timer = None
-        self.removeFromSuperview()
+        if self.overlay_window is not None:
+            window: Any = self.overlay_window
+            self.overlay_window = None
+            window.orderOut_(None)
+            window.close()
 
     def drawRect_(self, dirty: Any) -> None:
-        """Draw the visible portion of the burst inside the board's bounds."""
+        """Clear the previous frame and draw over the puzzle and dialog."""
+        AK.NSRectFillUsingOperation(dirty, AK.NSCompositingOperationClear)
         elapsed: float = (monotonic() - self.started) / self.duration
         bounds: Any = self.bounds()
         width: float = bounds.size.width
