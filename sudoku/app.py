@@ -33,7 +33,7 @@ from sudoku.controls import (
 )
 from sudoku.daily import choose_daily_level
 from sudoku.engine import cell_name
-from sudoku.game_sounds import game_sound
+from sudoku.game_sounds import game_sounds
 from sudoku.hint_types import HintLink
 from sudoku.hints import Hint, HintStep, hint_steps, iter_hints
 from sudoku.history import HistoryStore, hint_stage_key
@@ -86,7 +86,6 @@ class AppController(NSObject):
     timer: Any
     save_problem: str = ""
     completion_shown: bool
-    active_game_sound: Any = None
     startup_failed: bool = True
     main_window_closing: bool = False
     clear_all_game: Game | None = None
@@ -763,16 +762,9 @@ class AppController(NSObject):
 
     @objc.python_method
     def play_game_sound(self, name: str) -> None:
-        """Play one cue, letting a completion chime take priority over a buzz."""
-        if not self.preferences.game_sounds:
-            return
-        if self.active_game_sound is not None and self.active_game_sound.isPlaying():
-            if name == "incorrect":
-                return
-            self.active_game_sound.stop()
-        sound: Any = game_sound(name)
-        if sound is not None and sound.play():
-            self.active_game_sound = sound
+        """Queue a cue while gameplay sounds are enabled."""
+        if self.preferences.game_sounds:
+            game_sounds.play(name)
 
     @objc.python_method
     def enter_answer(self, index: int, digit: int) -> bool:
@@ -1624,8 +1616,8 @@ class AppController(NSObject):
             self.set_daily_enabled(bool(value))
             return
         setattr(self.preferences, key, value)
-        if key == "game_sounds" and not value and self.active_game_sound is not None:
-            self.active_game_sound.stop()
+        if key == "game_sounds" and not value:
+            game_sounds.stop()
         if key == "theme":
             self.theme = theme_for_name(self.preferences.theme)
         minimum_index: int = LEVELS.index(self.preferences.daily_minimum)
