@@ -2702,9 +2702,12 @@ def test_candidate_drag_skips_filled_starting_cell(
 
 @pytest.mark.parametrize("already_marked", [False, True])
 def test_candidate_drag_continues_after_initial_cell(
-    native_controller: Any, already_marked: bool
+    native_controller: Any, already_marked: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Keep one add/remove operation and undo action across a returning diagonal stroke."""
+    """Pulse for each edit and keep one undo action across a returning diagonal stroke."""
+    performer: Mock = Mock()
+    manager: Mock = Mock(defaultPerformer=Mock(return_value=performer))
+    monkeypatch.setattr(AK, "NSHapticFeedbackManager", manager)
     c: Any = native_controller
     c.refresh = Mock()
     c.changed = Mock()
@@ -2719,11 +2722,17 @@ def test_candidate_drag_continues_after_initial_cell(
     expected_notes: set[int] = set() if already_marked else {4}
 
     c.board.mouseDown_(pointer_at_cell(c.board, 10))
+    manager.defaultPerformer.assert_not_called()
     c.board.mouseDragged_(pointer_at_cell(c.board, 10, (3.0, 0.0)))
     assert c.game.notes[10] == expected_notes
+    performer.performFeedbackPattern_performanceTime_.assert_called_once_with(
+        AK.NSHapticFeedbackPatternGeneric, AK.NSHapticFeedbackPerformanceTimeNow
+    )
     c.board.mouseDragged_(pointer_at_cell(c.board, 30))
+    assert performer.performFeedbackPattern_performanceTime_.call_count == len(cells)
     c.board.mouseDragged_(pointer_at_cell(c.board, 10))
     c.board.mouseUp_(pointer_at_cell(c.board, 10))
+    assert performer.performFeedbackPattern_performanceTime_.call_count == len(cells)
     assert all(c.game.notes[index] == expected_notes for index in cells)
     assert all(c.game.values[index] == 0 for index in cells)
     assert not c.game.notes[11] and not c.game.notes[19]

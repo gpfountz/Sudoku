@@ -784,8 +784,11 @@ class SudokuBoard(AK.NSView):
                 for cell in crossed:
                     if game.color_mode:
                         game.paint_color(cell, operation)
-                    else:
-                        game.mark(cell, game.active_digit, operation)
+                    elif game.mark(cell, game.active_digit, operation):
+                        performer: Any = AK.NSHapticFeedbackManager.defaultPerformer()
+                        performer.performFeedbackPattern_performanceTime_(
+                            AK.NSHapticFeedbackPatternGeneric, AK.NSHapticFeedbackPerformanceTimeNow
+                        )
                 if new_cells:
                     self.drag_last = new_cells[-1]
                     game.selected = self.drag_last
