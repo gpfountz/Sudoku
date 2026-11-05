@@ -695,12 +695,7 @@ class SudokuBoard(AK.NSView):
             return game.paint_color(index, operation)
         if game.note_mode:
             return game.mark(index, game.active_digit, operation)
-        return game.set_value(
-            index,
-            game.active_digit,
-            self.controller.preferences.cleanup_notes,
-            error_check=self.controller.preferences.error_check,
-        )
+        return self.controller.enter_answer(index, game.active_digit)
 
     def rightMouseDown_(self, event: Any) -> None:
         """Show answer, candidate, and color choices for the clicked cell."""
@@ -930,12 +925,7 @@ class SudokuBoard(AK.NSView):
                 elif game.note_mode:
                     game.mark(game.selected, game.active_digit)
                 else:
-                    game.set_value(
-                        game.selected,
-                        game.active_digit,
-                        self.controller.preferences.cleanup_notes,
-                        error_check=self.controller.preferences.error_check,
-                    )
+                    self.controller.enter_answer(game.selected, game.active_digit)
                 self.controller.changed()
             self.controller.refresh()
         elif text.lower() == "n":

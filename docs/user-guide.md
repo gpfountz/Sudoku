@@ -186,8 +186,8 @@ and ending date and time. Every ended attempt has its own row. **Replay** starts
 using the saved ID, original clues, and difficulty, including for imported puzzles. The list reads
 small pages from SQLite as you scroll.
 
-- **Completed:** the puzzle was solved. The completion message shows difficulty, elapsed time,
-  hint stages viewed, revealed cells, and incorrect answers.
+- **Completed:** the puzzle was solved. The completion message shows the solve rank, difficulty,
+  elapsed time, hints, revealed cells, and incorrect answers.
 - **Restarted:** an unfinished puzzle was restarted, ending its old attempt.
 - **Abandoned:** an unfinished regular or imported attempt was replaced by New Game, or an
   unfinished imported attempt was replaced by Daily Game. Import and Replay end the currently
@@ -199,6 +199,18 @@ an attempt, and History does not reconstruct ended attempts from older legacy sa
 A hint stage counts once for a given deduction and board state. Viewing it again is free; changing
 the board makes it a new hint. Reveals count once per cell, and incorrect answers count each
 distinct cell and wrong digit once, including after Undo. These counters survive relaunches.
+
+### Completion celebrations
+
+**Excellent** is a solve with no incorrect entries, hints, reveals, or Auto Complete placements.
+**Great** allows up to two incorrect entries and one logical hint, with no reveals or Auto Complete
+placements. **Good** celebrates every other solve. Each logical hint counts once for ranking even if
+you read every stage. Elapsed time appears in the summary.
+
+Numbered Sudoku tiles sweep across the solved grid while the result is open. Each step in difficulty
+adds one level of celebration, and each step in rank adds two, for ten levels in all. macOS Reduce
+Motion shows the result with a static board. Attempts started before rank tracking show the original
+counts and receive a celebration based on difficulty.
 
 ## Statistics
 
@@ -225,6 +237,10 @@ Open **Sudoku → Settings…** or press **Command-comma**. Settings includes **
 and **Dark** appearance, themes, matching-digit and row/column/box highlighting, candidate dragging
 in answer mode, note cleanup, timer visibility, and daily-game difficulty limits. System appearance
 is the default.
+
+Turn on **Play game sounds** to hear a completion chime and an incorrect-answer buzzer. The buzzer
+follows **Show errors**, so it sounds for duplicate digits in Rule Conflicts mode, or for incorrect
+answers in Against Solution mode. With error checking off, gameplay gives no incorrect-answer cue.
 
 ### Themes and board cues
 

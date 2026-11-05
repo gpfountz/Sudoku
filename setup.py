@@ -34,6 +34,7 @@ setup(
             "resources": [
                 os.environ.get("SUDOKU_BUILD_CATALOG", "sudoku/data/catalog"),
                 "sudoku/data/licenses",
+                "sudoku/data/sounds",
             ],
             "iconfile": "resources/Sudoku.icns",
             "argv_emulation": False,

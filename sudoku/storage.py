@@ -13,7 +13,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from sudoku.model import Game, Preferences, Puzzle, Snapshot
+from sudoku.model import COMPLETION_RANKS, Game, Preferences, Puzzle, Snapshot
 
 if TYPE_CHECKING:
     from sudoku.catalog import Catalog
@@ -82,10 +82,38 @@ def game_data(game: Game) -> dict[str, Any]:
         "paused": game.paused,
         "attempt_id": game.attempt_id,
         "viewed_hint_stages": sorted(game.viewed_hint_stages),
+        "viewed_hints": sorted(game.viewed_hints) if game.viewed_hints is not None else None,
         "revealed_cells": sorted(game.revealed_cells),
+        "auto_completed_cells": sorted(game.auto_completed_cells),
         "incorrect_entries": [list(entry) for entry in sorted(game.incorrect_entries)],
         "solved_at": game.solved_at,
+        "completion_rank": game.completion_rank,
     }
+
+
+def parse_hint_keys(keys: Any) -> set[str]:
+    """Validate and deduplicate saved hint identities."""
+    if (
+        not isinstance(keys, list)
+        or len(keys) > 10000
+        or any(
+            not isinstance(key, str)
+            or len(key) != 64
+            or any(character not in "0123456789abcdef" for character in key)
+            for key in keys
+        )
+    ):
+        raise ValueError("Invalid viewed hints")
+    return set(keys)
+
+
+def parse_assisted_cells(cells: Any) -> set[int]:
+    """Validate indices recorded by answer assistance."""
+    if not isinstance(cells, list) or any(
+        type(index) is not int or not 0 <= index < 81 for index in cells
+    ):
+        raise ValueError("Invalid assisted cells")
+    return set(cells)
 
 
 def game_from_data(data: dict[str, Any], puzzle: Puzzle) -> Game:
@@ -117,25 +145,11 @@ def game_from_data(data: dict[str, Any], puzzle: Puzzle) -> Game:
     ):
         raise ValueError("Invalid game attempt ID")
     game.attempt_id = attempt_id
-    viewed: Any = data.get("viewed_hint_stages", [])
-    if (
-        not isinstance(viewed, list)
-        or len(viewed) > 10000
-        or any(
-            not isinstance(key, str)
-            or len(key) != 64
-            or any(character not in "0123456789abcdef" for character in key)
-            for key in viewed
-        )
-    ):
-        raise ValueError("Invalid viewed hint stages")
-    game.viewed_hint_stages = set(viewed)
-    revealed: Any = data.get("revealed_cells", [])
-    if not isinstance(revealed, list) or any(
-        type(index) is not int or not 0 <= index < 81 for index in revealed
-    ):
-        raise ValueError("Invalid revealed cells")
-    game.revealed_cells = set(revealed)
+    game.viewed_hint_stages = parse_hint_keys(data.get("viewed_hint_stages", []))
+    viewed: Any = data.get("viewed_hints")
+    game.viewed_hints = None if viewed is None else parse_hint_keys(viewed)
+    game.revealed_cells = parse_assisted_cells(data.get("revealed_cells", []))
+    game.auto_completed_cells = parse_assisted_cells(data.get("auto_completed_cells", []))
     incorrect: Any = data.get("incorrect_entries", [])
     if not isinstance(incorrect, list) or any(
         not isinstance(entry, list)
@@ -157,6 +171,10 @@ def game_from_data(data: dict[str, Any], puzzle: Puzzle) -> Game:
         except ValueError as error:
             raise ValueError("Invalid solved timestamp") from error
     game.solved_at = solved_at
+    rank: Any = data.get("completion_rank")
+    if rank is not None and (rank not in COMPLETION_RANKS or solved_at is None):
+        raise ValueError("Invalid completion rank")
+    game.completion_rank = rank
     return game
 
 

@@ -23,6 +23,7 @@ from Foundation import NSDate, NSProcessInfo, NSRunLoop, NSTimer
 from scripts.preview_hint_links import preview_game, preview_hint
 from sudoku.app import AppController
 from sudoku.board import CandidateLayout, SudokuBoard, candidate_layout
+from sudoku.celebration import CompletionOverlay
 from sudoku.compatibility import action_bezel_style
 from sudoku.context_menu import CellContextMenu
 from sudoku.controls import (
@@ -414,6 +415,8 @@ def test_hint_diagram_tracks_back_dismissal_and_missing_notes(native_controller:
     controller.hint_stage = 3
     controller.present_hint()
     assert controller.hint_links and controller.hint_removals == {(29, 2)}
+    assert len(controller.game.viewed_hint_stages) == 3
+    assert len(controller.game.viewed_hints) == 1
     controller.clear_hint()
     assert not controller.hint_links and not controller.hint_candidates
 
@@ -1197,6 +1200,7 @@ def test_settings_use_native_switches(native_controller: Any) -> None:
             "drag_answers_as_candidates",
             "cleanup_notes",
             "show_timer",
+            "game_sounds",
             "daily_enabled",
         ):
             toggle: Any = controller.settings_controls[key]
@@ -1756,6 +1760,80 @@ def test_header_level_is_read_only_for_catalog_and_completed_games(
     controller.refresh()
     assert controller.controls["import_level"].isHidden()
     assert controller.game.puzzle.level in controller.controls["subtitle"].stringValue()
+
+
+def test_completion_overlay_runs_during_native_alert(
+    native_controller: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Place the result above the solved board and dismiss it while tiles are active."""
+    controller: Any = native_controller
+    controller.game.values = list(controller.game.puzzle.solution)
+    controller.game.completion_rank = "Excellent"
+    application: Any = AK.NSApplication.sharedApplication()
+    reduce_motion: bool = AK.NSWorkspace.sharedWorkspace().accessibilityDisplayShouldReduceMotion()
+    controller.window.orderFront_(None)
+    observed: list[tuple[str, str, int, Any]] = []
+    drawn: list[float] = []
+    builder: Any = controller.build_message_dialog
+    draw_tile: Any = CompletionOverlay.draw_tile
+
+    def draw(overlay: CompletionOverlay, tile: Any, progress: float, w: float, h: float) -> None:
+        """Track native drawing while preserving the real AppKit paint path."""
+        drawn.append(progress)
+        draw_tile(overlay, tile, progress, w, h)
+
+    monkeypatch.setattr(CompletionOverlay, "draw_tile", draw)
+    positioned: list[Any] = []
+    position_alert: Any = controller.position_completion_alert
+
+    def position(panel: Any) -> None:
+        """Record where the app places the alert before AppKit enters its modal loop."""
+        position_alert(panel)
+        positioned.append(panel.frame())
+
+    controller.position_completion_alert = position
+
+    def build(title: str, message: str) -> Any:
+        """Capture modal state before clicking its native OK button."""
+        alert: Any = builder(title, message)
+
+        def confirm(timer: Any) -> None:
+            """Record the active overlay and dismiss via the real button."""
+            overlay: Any = next(
+                (
+                    view
+                    for view in controller.board.subviews()
+                    if isinstance(view, CompletionOverlay)
+                ),
+                None,
+            )
+            count: int = len(overlay.tiles) if overlay is not None else 0
+            observed.append((title, message, count, alert.window().frame()))
+            alert.buttons()[0].performClick_(None)
+
+        timer: Any = NSTimer.timerWithTimeInterval_repeats_block_(0.18, False, confirm)
+        NSRunLoop.mainRunLoop().addTimer_forMode_(timer, AK.NSModalPanelRunLoopMode)
+        return alert
+
+    controller.build_message_dialog = build
+    guard: Any = NSTimer.timerWithTimeInterval_repeats_block_(
+        3, False, lambda timer: application.abortModal()
+    )
+    NSRunLoop.mainRunLoop().addTimer_forMode_(guard, AK.NSModalPanelRunLoopMode)
+    try:
+        controller.show_completion()
+    finally:
+        guard.invalidate()
+        controller.window.orderOut_(None)
+    assert len(observed) == 1
+    title, message, count, panel_frame = observed[0]
+    assert title == "Puzzle complete"
+    assert "Excellent solve\n\nLevel: Easy\nTime: 0:00" in message
+    assert count == (0 if reduce_motion else 42)
+    assert bool(drawn) != reduce_motion
+    assert panel_frame.origin.x == pytest.approx(positioned[0].origin.x, abs=1)
+    assert panel_frame.origin.y == pytest.approx(positioned[0].origin.y, abs=1)
+    assert all(not isinstance(view, CompletionOverlay) for view in controller.board.subviews())
 
 
 @pytest.mark.parametrize("name", ["Default", "Warm Paper", "High Contrast"])

@@ -14,11 +14,12 @@ from typing import Any
 
 import AppKit as AK
 import objc
-from Foundation import NSBundle, NSObject, NSTimer
+from Foundation import NSBundle, NSNotificationCenter, NSObject, NSTimer
 from PyObjCTools import AppHelper
 
 from sudoku.board import SudokuBoard
 from sudoku.catalog import Catalog, load_catalog
+from sudoku.celebration import CompletionOverlay, celebration_level
 from sudoku.compatibility import action_bezel_style
 from sudoku.controls import (
     DigitButton,
@@ -32,6 +33,7 @@ from sudoku.controls import (
 )
 from sudoku.daily import choose_daily_level
 from sudoku.engine import cell_name
+from sudoku.game_sounds import game_sound
 from sudoku.hint_types import HintLink
 from sudoku.hints import Hint, HintStep, hint_steps, iter_hints
 from sudoku.history import HistoryStore, hint_stage_key
@@ -84,6 +86,7 @@ class AppController(NSObject):
     timer: Any
     save_problem: str = ""
     completion_shown: bool
+    active_game_sound: Any = None
     startup_failed: bool = True
     main_window_closing: bool = False
     clear_all_game: Game | None = None
@@ -681,23 +684,111 @@ class AppController(NSObject):
     def changed(self, save: bool = True) -> None:
         """Invalidate stale hints, save complete edits, and announce completion."""
         self.clear_hint()
-        if self.game.complete and not self.completion_shown and self.game.solved_at is None:
+        completed: bool = (
+            self.game.complete and not self.completion_shown and self.game.solved_at is None
+        )
+        if completed:
             self.game.solved_at = datetime.now(UTC).isoformat()
-        if save:
+            self.game.completion_rank = self.game.rank_for_completion()
+            self.completion_shown = True
+        if save or completed:
             self.save()
         self.refresh()
-        if self.game.complete and not self.completion_shown:
-            self.completion_shown = True
-            self.alert(
-                "Puzzle complete",
-                f"Level: {self.game.puzzle.level}\n"
-                f"Time: {format_elapsed(self.game.elapsed)}\n"
-                f"Hints: {len(self.game.viewed_hint_stages)}  ·  "
-                f"Reveals: {len(self.game.revealed_cells)}\n"
-                f"Incorrect answers: {len(self.game.incorrect_entries)}",
-            )
+        if completed:
+            self.show_completion()
         elif not self.game.complete:
             self.completion_shown = False
+
+    @objc.python_method
+    def show_completion(self) -> None:
+        """Present the saved result over the board and clean up decorative effects."""
+        game: Game = self.game
+        rank: str | None = game.completion_rank
+        hints: str = (
+            f"Hints: {len(game.viewed_hints)}"
+            if game.viewed_hints is not None
+            else f"Hint stages: {len(game.viewed_hint_stages)}"
+        )
+        message: str = (
+            f"Level: {game.puzzle.level}\n"
+            f"Time: {format_elapsed(game.elapsed)}\n"
+            f"{hints}  ·  Reveals: {len(game.revealed_cells)}\n"
+            f"Incorrect answers: {len(game.incorrect_entries)}"
+        )
+        if game.viewed_hints is not None and game.auto_completed_cells:
+            message += f"\nCells filled by Auto Complete: {len(game.auto_completed_cells)}"
+        alert: Any = self.build_message_dialog(
+            "Puzzle complete", f"{rank} solve\n\n{message}" if rank else message
+        )
+        panel: Any = alert.window()
+        notifications: Any = NSNotificationCenter.defaultCenter()
+        # NSAlert centers itself before making its window key.
+        position_observer: Any = notifications.addObserverForName_object_queue_usingBlock_(
+            AK.NSWindowDidBecomeKeyNotification,
+            panel,
+            None,
+            lambda notification: self.position_completion_alert(panel),
+        )
+        overlay: CompletionOverlay | None = None
+        try:
+            if not AK.NSWorkspace.sharedWorkspace().accessibilityDisplayShouldReduceMotion():
+                overlay = CompletionOverlay.alloc().initWithFrame_(self.board.bounds())
+                overlay.setAutoresizingMask_(AK.NSViewWidthSizable | AK.NSViewHeightSizable)
+                overlay.setAccessibilityElement_(False)
+                overlay.setClipsToBounds_(True)
+                overlay.start(celebration_level(game.puzzle.level, rank))
+                self.board.addSubview_(overlay)
+            self.play_game_sound((rank or "Good").lower())
+            alert.runModal()
+        finally:
+            notifications.removeObserver_(position_observer)
+            if overlay is not None:
+                overlay.stop()
+
+    @objc.python_method
+    def position_completion_alert(self, panel: Any) -> None:
+        """Center the native alert over the grid, within the visible screen."""
+        board_frame: Any = self.window.convertRectToScreen_(
+            self.board.convertRect_toView_(self.board.bounds(), None)
+        )
+        frame: Any = panel.frame()
+        x: float = AK.NSMidX(board_frame) - frame.size.width / 2
+        y: float = AK.NSMidY(board_frame) - frame.size.height / 2
+        screen: Any = self.window.screen()
+        if screen is not None:
+            visible: Any = screen.visibleFrame()
+            x = max(AK.NSMinX(visible), min(x, AK.NSMaxX(visible) - frame.size.width))
+            y = max(AK.NSMinY(visible), min(y, AK.NSMaxY(visible) - frame.size.height))
+        panel.setFrameOrigin_(AK.NSMakePoint(x, y))
+
+    @objc.python_method
+    def play_game_sound(self, name: str) -> None:
+        """Play one cue, letting a completion chime take priority over a buzz."""
+        if not self.preferences.game_sounds:
+            return
+        if self.active_game_sound is not None and self.active_game_sound.isPlaying():
+            if name == "incorrect":
+                return
+            self.active_game_sound.stop()
+        sound: Any = game_sound(name)
+        if sound is not None and sound.play():
+            self.active_game_sound = sound
+
+    @objc.python_method
+    def enter_answer(self, index: int, digit: int) -> bool:
+        """Enter a player answer and sound only errors exposed by Show errors."""
+        error_check: str = self.preferences.error_check
+        changed: bool = self.game.set_value(
+            index, digit, self.preferences.cleanup_notes, error_check=error_check
+        )
+        if (
+            changed
+            and digit
+            and self.preferences.game_sounds
+            and index in self.game.errors(error_check)
+        ):
+            self.play_game_sound("incorrect")
+        return changed
 
     @objc.python_method
     def refresh_timer(self) -> None:
@@ -767,12 +858,7 @@ class AppController(NSObject):
             elif self.game.note_mode:
                 self.game.mark(self.game.selected, self.game.active_digit)
             else:
-                self.game.set_value(
-                    self.game.selected,
-                    self.game.active_digit,
-                    self.preferences.cleanup_notes,
-                    error_check=self.preferences.error_check,
-                )
+                self.enter_answer(self.game.selected, self.game.active_digit)
             self.changed()
         else:
             self.save()
@@ -1320,6 +1406,8 @@ class AppController(NSObject):
         key: str = hint_stage_key(self.game, self.current_hint, self.hint_stage)
         if key not in self.game.viewed_hint_stages:
             self.game.viewed_hint_stages.add(key)
+            if self.game.viewed_hints is not None:
+                self.game.viewed_hints.add(hint_stage_key(self.game, self.current_hint, 0))
             self.save()
         step: HintStep = hint_steps(self.game, self.current_hint)[self.hint_stage - 1]
         self.hint_focus = set(step.focus)
@@ -1425,6 +1513,7 @@ class AppController(NSObject):
             "drag_answers_as_candidates",
             "cleanup_notes",
             "show_timer",
+            "game_sounds",
             "daily_enabled",
         ):
             self.settings_controls[name].setState_(int(getattr(self.preferences, name)))
@@ -1436,7 +1525,7 @@ class AppController(NSObject):
     def build_settings(self) -> None:
         """Construct labeled Cocoa appearance, theme, and assistance preferences."""
         self.settings_window = AK.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-            AK.NSMakeRect(0, 0, 470, 582),
+            AK.NSMakeRect(0, 0, 470, 619),
             AK.NSWindowStyleMaskTitled | AK.NSWindowStyleMaskClosable,
             AK.NSBackingStoreBuffered,
             False,
@@ -1446,9 +1535,9 @@ class AppController(NSObject):
         self.settings_window.center()
         content: Any = self.settings_window.contentView()
         for key, title, options, position in (
-            ("appearance", "Appearance", ["System", "Light", "Dark"], 525),
-            ("theme", "Theme", list(THEME_NAMES), 475),
-            ("error_check", "Show errors", ["Off", "Rule Conflicts", "Against Solution"], 425),
+            ("appearance", "Appearance", ["System", "Light", "Dark"], 562),
+            ("theme", "Theme", list(THEME_NAMES), 512),
+            ("error_check", "Show errors", ["Off", "Rule Conflicts", "Against Solution"], 462),
             ("daily_minimum", "Daily minimum", list(LEVELS), 110),
             ("daily_maximum", "Daily maximum", list(LEVELS), 60),
         ):
@@ -1477,10 +1566,11 @@ class AppController(NSObject):
                 ),
                 ("cleanup_notes", "Remove peer candidates when entering answers"),
                 ("show_timer", "Show elapsed play time"),
+                ("game_sounds", "Play game sounds"),
                 ("daily_enabled", "Enable Daily Game"),
             )
         ):
-            switch_y: float = 380 - row * 37
+            switch_y: float = 417 - row * 37
             switch_label: Any = self.label(title)
             switch_label.setFrame_(AK.NSMakeRect(25, switch_y - 3, 350, 34))
             switch_label.setLineBreakMode_(AK.NSLineBreakByWordWrapping)
@@ -1534,6 +1624,8 @@ class AppController(NSObject):
             self.set_daily_enabled(bool(value))
             return
         setattr(self.preferences, key, value)
+        if key == "game_sounds" and not value and self.active_game_sound is not None:
+            self.active_game_sound.stop()
         if key == "theme":
             self.theme = theme_for_name(self.preferences.theme)
         minimum_index: int = LEVELS.index(self.preferences.daily_minimum)

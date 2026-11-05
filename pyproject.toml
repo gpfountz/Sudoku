@@ -34,6 +34,7 @@ version = {attr = "sudoku.version.APP_VERSION"}
 sudoku = [
     "data/catalog/manifest.json", "data/catalog/*/*.sqlite", "data/*.txt",
     "data/licenses/*.txt", "data/licenses/*.json", "data/licenses/third-party/*.txt",
+    "data/sounds/*.wav",
 ]
 
 [tool.pytest.ini_options]

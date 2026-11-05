@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS game_attempts (
 );
 CREATE INDEX IF NOT EXISTS game_attempts_newest
 ON game_attempts(ended_at DESC, attempt_id DESC);
+CREATE TABLE IF NOT EXISTS completion_ranks (
+    attempt_id TEXT PRIMARY KEY REFERENCES game_attempts(attempt_id),
+    rank TEXT NOT NULL
+);
 """
 
 
@@ -47,6 +51,7 @@ class GameHistoryEntry:
     reveal_count: int
     incorrect_count: int
     daily_date: str | None
+    completion_rank: str | None = None
 
 
 def hint_stage_key(game: Game, hint: Hint, stage: int) -> str:
@@ -139,7 +144,13 @@ class HistoryStore:
                             daily_date,
                         ),
                     )
-                    return cursor.rowcount == 1
+                    inserted: bool = cursor.rowcount == 1
+                    if inserted and status == "Completed" and game.completion_rank is not None:
+                        connection.execute(
+                            "INSERT INTO completion_ranks VALUES (?,?)",
+                            (game.attempt_id, game.completion_rank),
+                        )
+                    return inserted
         except sqlite3.Error as error:
             raise SaveError(f"Could not save game history: {error}") from error
 
@@ -192,15 +203,16 @@ class HistoryStore:
             raise ValueError("Invalid history page")
         try:
             with closing(self.connect()) as connection:
-                rows: list[tuple[str, str, str, str, str, float, int, int, int, str | None]] = (
-                    connection.execute(
-                        "SELECT attempt_id,ended_at,status,puzzle_id,level,elapsed_seconds,"
-                        "hint_count,reveal_count,incorrect_count,daily_date "
-                        "FROM game_attempts ORDER BY ended_at DESC,attempt_id DESC "
-                        "LIMIT ? OFFSET ?",
-                        (limit, offset),
-                    ).fetchall()
-                )
+                rows: list[
+                    tuple[str, str, str, str, str, float, int, int, int, str | None, str | None]
+                ] = connection.execute(
+                    "SELECT game_attempts.attempt_id,ended_at,status,puzzle_id,level,"
+                    "elapsed_seconds,hint_count,reveal_count,incorrect_count,daily_date,rank "
+                    "FROM game_attempts LEFT JOIN completion_ranks USING (attempt_id) "
+                    "ORDER BY ended_at DESC,game_attempts.attempt_id DESC "
+                    "LIMIT ? OFFSET ?",
+                    (limit, offset),
+                ).fetchall()
             return [GameHistoryEntry(*row) for row in rows]
         except sqlite3.Error as error:
             raise SaveError(f"Could not load game history: {error}") from error

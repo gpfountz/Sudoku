@@ -16,14 +16,15 @@ import pytest
 
 from sudoku.app import AppController
 from sudoku.catalog import Catalog, load_catalog
+from sudoku.celebration import celebration_level
 from sudoku.hint_types import Hint
 from sudoku.history import SCHEMA, HistoryStore, hint_stage_key
-from sudoku.model import Game
+from sudoku.model import LEVELS, Game, Preferences
 from sudoku.storage import Store, game_data, game_from_data
 
 
-def test_completion_popup_starts_with_level_and_keeps_counts(game: Game) -> None:
-    """Keep date and puzzle ID in history without cluttering the completion alert."""
+def test_completion_awards_and_saves_rank_once(game: Game) -> None:
+    """Save the first rank before presenting it and suppress a repeat after undo."""
     game.values = list(game.puzzle.solution)
     game.elapsed = 430
     game.incorrect_entries.add((1, 3))
@@ -33,13 +34,83 @@ def test_completion_popup_starts_with_level_and_keeps_counts(game: Game) -> None
         clear_hint=Mock(),
         save=Mock(),
         refresh=Mock(),
-        alert=Mock(),
+        show_completion=Mock(),
     )
     AppController.changed(controller)
-    title, message = controller.alert.call_args.args
-    assert title == "Puzzle complete"
-    assert message == "Level: Easy\nTime: 7:10\nHints: 0  ·  Reveals: 0\nIncorrect answers: 1"
+    assert game.completion_rank == "Great"
     assert game.solved_at is not None
+    assert game_from_data(game_data(game), game.puzzle).completion_rank == "Great"
+    controller.show_completion.assert_called_once_with()
+    game.values[1] = 0
+    AppController.changed(controller)
+    game.values[1] = game.puzzle.solution[1]
+    AppController.changed(controller)
+    controller.show_completion.assert_called_once_with()
+
+
+@pytest.mark.parametrize(
+    ("mistakes", "hints", "revealed", "automatic", "rank"),
+    (
+        (0, 0, False, False, "Excellent"),
+        (2, 1, False, False, "Great"),
+        (0, 2, False, False, "Good"),
+        (3, 0, False, False, "Good"),
+        (0, 0, True, False, "Good"),
+        (0, 0, False, True, "Good"),
+    ),
+)
+def test_ranking_boundaries(
+    game: Game, mistakes: int, hints: int, revealed: bool, automatic: bool, rank: str
+) -> None:
+    """Count logical hints and distinct errors and limit answer-assisted solves."""
+    game.incorrect_entries = {(index, 9) for index in range(1, mistakes + 1)}
+    game.viewed_hints = {str(index) * 64 for index in range(hints)}
+    game.viewed_hint_stages = {"a" * 64, "b" * 64, "c" * 64}
+    game.revealed_cells = {1} if revealed else set()
+    game.auto_completed_cells = {2} if automatic else set()
+    restored: Game = game_from_data(game_data(game), game.puzzle)
+    assert restored.rank_for_completion() == rank
+
+
+def test_old_save_and_celebration_range(game: Game) -> None:
+    """Keep older attempts unranked and cover every intensity with the same three ranks."""
+    payload: dict[str, Any] = game_data(game)
+    del payload["viewed_hints"]
+    assert game_from_data(payload, game.puzzle).rank_for_completion() is None
+    assert [celebration_level(level, None) for level in LEVELS] == list(range(1, 7))
+    assert {
+        celebration_level(level, rank)
+        for level in LEVELS
+        for rank in ("Good", "Great", "Excellent")
+    } == set(range(1, 11))
+
+
+@pytest.mark.parametrize(
+    ("mode", "enabled", "digit", "buzz"),
+    (
+        ("Off", True, 1, False),
+        ("Rule Conflicts", True, 1, True),
+        ("Rule Conflicts", True, 3, False),
+        ("Against Solution", True, 3, True),
+        ("Against Solution", True, 2, False),
+        ("Against Solution", False, 3, False),
+    ),
+)
+def test_wrong_answer_sound_follows_visible_errors(
+    game: Game, mode: str, enabled: bool, digit: int, buzz: bool
+) -> None:
+    """Play only for a changed answer that the active error mode exposes."""
+    controller: Any = SimpleNamespace(
+        game=game,
+        preferences=Preferences(error_check=mode, game_sounds=enabled),
+        play_game_sound=Mock(),
+    )
+    assert AppController.enter_answer(controller, 1, digit)
+    assert not AppController.enter_answer(controller, 1, digit)
+    if buzz:
+        controller.play_game_sound.assert_called_once_with("incorrect")
+    else:
+        controller.play_game_sound.assert_not_called()
 
 
 def test_repeated_mistake_is_one_distinct_cell_and_digit(game: Game) -> None:
@@ -95,6 +166,13 @@ def test_outcomes_are_idempotent_and_paged_newest_first(tmp_path: Path, game: Ga
     assert history.page(2, 1) == []
     history.remove_outcome(later.attempt_id)
     assert history.count() == 1
+    later.values = list(later.puzzle.solution)
+    later.solved_at = second
+    later.completion_rank = "Excellent"
+    history.record_completion(later)
+    history.record_completion(later)
+    assert history.count() == 2
+    assert history.page(0, 1)[0].completion_rank == "Excellent"
 
 
 @pytest.mark.parametrize("new_database_exists", [False, True])
@@ -108,7 +186,7 @@ def test_former_database_is_moved_or_merged(
         HistoryStore(new_path).record_outcome(current, "Abandoned", "2026-09-26T12:00:00+00:00")
     old_path: Path = tmp_path / "statistics.sqlite3"
     with sqlite3.connect(old_path) as connection:
-        connection.executescript(SCHEMA)
+        connection.executescript(SCHEMA.split("CREATE TABLE IF NOT EXISTS completion_ranks")[0])
         connection.execute(
             "INSERT INTO game_attempts VALUES (?,?,?,?,?,?,?,?,?,?)",
             (
@@ -128,7 +206,8 @@ def test_former_database_is_moved_or_merged(
     history.ensure_ready()
     assert history.count() == (2 if new_database_exists else 1)
     assert new_path.exists() and not old_path.exists()
-    assert any(entry.attempt_id == game.attempt_id for entry in history.page(0))
+    entry = next(entry for entry in history.page(0) if entry.attempt_id == game.attempt_id)
+    assert entry.completion_rank is None
 
 
 def test_replay_is_separate_regular_attempt_on_exact_puzzle(tmp_path: Path) -> None:

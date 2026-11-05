@@ -12,6 +12,7 @@ from sudoku.engine import DIGITS, PEERS, UNITS, candidates, conflicts
 from sudoku.theme_names import THEME_NAMES
 
 LEVELS: tuple[str, ...] = ("Easy", "Medium", "Hard", "Expert", "Master", "Extreme")
+COMPLETION_RANKS: tuple[str, ...] = ("Good", "Great", "Excellent")
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,7 @@ class Preferences:
     drag_answers_as_candidates: bool = True
     cleanup_notes: bool = True
     show_timer: bool = True
+    game_sounds: bool = False
     daily_enabled: bool = False
     daily_minimum: str = "Easy"
     daily_maximum: str = "Extreme"
@@ -70,6 +72,7 @@ class Preferences:
             "drag_answers_as_candidates",
             "cleanup_notes",
             "show_timer",
+            "game_sounds",
             "daily_enabled",
         ):
             if type(data.get(name)) is bool:
@@ -107,9 +110,12 @@ class Game:
     paused: bool = False
     attempt_id: str = field(default_factory=lambda: uuid4().hex)
     viewed_hint_stages: set[str] = field(default_factory=set)
+    viewed_hints: set[str] | None = field(default_factory=set)
     revealed_cells: set[int] = field(default_factory=set)
+    auto_completed_cells: set[int] = field(default_factory=set)
     incorrect_entries: set[tuple[int, int]] = field(default_factory=set)
     solved_at: str | None = None
+    completion_rank: str | None = None
     _group: Snapshot | None = None
 
     def __post_init__(self) -> None:
@@ -289,6 +295,7 @@ class Game:
                 if self.values[index]:
                     continue
                 self.values[index] = digit
+                self.auto_completed_cells.add(index)
                 self.notes[index].clear()
                 if cleanup:
                     for peer in PEERS[index]:
@@ -352,6 +359,18 @@ class Game:
         return {
             i for i, value in enumerate(self.values) if value and value != self.puzzle.solution[i]
         }
+
+    def rank_for_completion(self) -> str | None:
+        """Award a rank when the attempt has complete assistance tracking."""
+        if self.viewed_hints is None:
+            return None
+        if self.revealed_cells or self.auto_completed_cells:
+            return "Good"
+        if not self.incorrect_entries and not self.viewed_hints:
+            return "Excellent"
+        if len(self.incorrect_entries) <= 2 and len(self.viewed_hints) <= 1:
+            return "Great"
+        return "Good"
 
     @property
     def completed_digits(self) -> frozenset[int]:

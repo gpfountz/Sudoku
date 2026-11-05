@@ -260,12 +260,7 @@ class CellContextMenu(NSObject):
             return
         digit: int = int(sender.tag())
         game.active_digit = digit
-        changed: bool = game.set_value(
-            self.index,
-            digit,
-            self.board.controller.preferences.cleanup_notes,
-            error_check=self.board.controller.preferences.error_check,
-        )
+        changed: bool = self.board.controller.enter_answer(self.index, digit)
         self.finish_action(changed)
 
     def chooseCandidate_(self, sender: Any) -> None:
