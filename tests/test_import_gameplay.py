@@ -5,6 +5,7 @@
 """Verify real application transitions between imported, regular, and daily games."""
 
 import json
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
@@ -199,6 +200,84 @@ def test_daily_game_ends_import(controller: Any) -> None:
         record.attempt_id == previous.attempt_id and record.status == "Abandoned"
         for record in controller.history.page(0)
     )
+
+
+@pytest.mark.parametrize("relaunch", [False, True])
+def test_daily_completion_retries_after_returning_to_regular(
+    controller: Any, relaunch: bool
+) -> None:
+    """Keep a durable retry after a History write fails and the player switches boards."""
+    controller.changed.side_effect = controller.save
+    controller.dailyGames_(None)
+    daily: Game = controller.game
+    day: str = controller.current_day
+    daily.values = list(daily.puzzle.solution)
+    daily.elapsed = 120
+    controller.clear_hint = Mock()
+    controller.refresh = Mock()
+    controller.show_completion = Mock()
+    with closing(controller.history.connect()) as connection:
+        connection.execute(
+            "CREATE TRIGGER fail_completion BEFORE INSERT ON game_attempts "
+            "WHEN NEW.status = 'Completed' "
+            "BEGIN SELECT RAISE(ABORT, 'History unavailable'); END"
+        )
+
+    AppController.changed(controller)
+    assert "History unavailable" in controller.save_problem
+    assert list(controller.store.pending_daily_dates()) == [day]
+    assert controller.store.load_daily_game(day, controller.catalog).complete
+    controller.alert.return_value = 1
+    controller.restart_(None)
+    assert controller.game is daily
+    controller.returnRegular_(None)
+    assert controller.game is controller.regular_game
+    assert controller.active_daily_date is None
+    assert "History unavailable" in controller.save_problem
+    assert controller.history.count() == 0
+
+    with closing(controller.history.connect()) as connection:
+        connection.execute("DROP TRIGGER fail_completion")
+    if relaunch:
+        directory: Path = controller.store.directory
+        controller.store = Store(directory)
+        controller.regular_game = controller.game = controller.store.load_game(controller.catalog)
+        assert controller.store.load_active_daily_date() is None
+        controller.history = HistoryStore(directory / "history.sqlite3")
+        controller.daily_games = {}
+        controller.save_problem = ""
+    controller.save()
+    controller.save()
+    assert controller.save_problem == ""
+    assert list(controller.store.pending_daily_dates()) == []
+    (entry,) = controller.history.page(0)
+    assert entry.attempt_id == daily.attempt_id
+    assert entry.status == "Completed"
+    assert entry.daily_date == day
+    assert entry.ended_at == daily.solved_at
+    assert entry.completion_rank == "Excellent"
+    assert entry.elapsed_seconds == 120
+
+
+def test_pending_daily_date_does_not_record_an_unsaved_board(controller: Any) -> None:
+    """Ignore a marker left before a completed board could be committed."""
+    controller.dailyGames_(None)
+    day: str = controller.current_day
+    daily: Game = controller.game
+    daily.values = list(daily.puzzle.solution)
+    daily.solved_at = "2026-10-03T12:00:00+00:00"
+    original_write: Any = controller.store.write
+    controller.store.write = Mock(side_effect=SaveError("Board write failed"))
+    with pytest.raises(SaveError, match="Board write failed"):
+        controller.store.save_daily_game(day, daily)
+    assert list(controller.store.pending_daily_dates()) == [day]
+    controller.store.write = original_write
+
+    controller.retry_daily_completions()
+    assert controller.history.count() == 0
+    assert list(controller.store.pending_daily_dates()) == []
+    controller.save()
+    assert controller.history.count() == 1
 
 
 @pytest.mark.parametrize("source", ["imported", "regular", "catalog_replay"])

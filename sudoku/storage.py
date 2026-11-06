@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from sudoku.imported import ImportedStore
     from sudoku.player import PlayerStore
 
+PENDING_DAILY_COMPLETIONS: str = "pending-daily-completions"
+
 
 class SaveError(Exception):
     """Describe an unreadable or unwritable local save without destroying it."""
@@ -199,6 +201,7 @@ class Store:
         self.warnings: list[str] = []
         self.players: PlayerStore | None = None
         self._imported: ImportedStore | None = None
+        self._recorded_daily_attempts: set[str] = set()
 
     @contextmanager
     def writer_session(self) -> Iterator[None]:
@@ -369,7 +372,37 @@ class Store:
         """Persist a dated catalog game and its full editable state."""
         if date.fromisoformat(day).isoformat() != day:
             raise SaveError("Invalid daily game date")
+        if game.solved_at is not None and game.attempt_id not in self._recorded_daily_attempts:
+            # Mark the date before publishing the board so a process exit cannot lose the retry.
+            marker: Path = self.directory / PENDING_DAILY_COMPLETIONS / f"{day}.pending"
+            try:
+                marker.parent.mkdir(parents=True, exist_ok=True)
+                marker.touch()
+            except OSError as error:
+                raise SaveError(f"Could not mark daily completion for {day}: {error}") from error
         self.write(f"catalog-daily-games/{day}.json", {"date": day, "game": game_data(game)})
+
+    def pending_daily_dates(self) -> Iterator[str]:
+        """Yield dates that may have a saved completion waiting for History."""
+        try:
+            paths: list[Path] = list((self.directory / PENDING_DAILY_COMPLETIONS).iterdir())
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            raise SaveError(f"Could not read pending daily completions: {error}") from error
+        for path in paths:
+            if path.suffix == ".pending":
+                yield path.stem
+
+    def clear_pending_daily_date(self, day: str, attempt_id: str | None = None) -> None:
+        """Remove a retry marker after History commits or the board has no saved completion."""
+        marker: Path = self.directory / PENDING_DAILY_COMPLETIONS / f"{day}.pending"
+        try:
+            marker.unlink(missing_ok=True)
+        except OSError as error:
+            raise SaveError(f"Could not clear daily completion for {day}: {error}") from error
+        if attempt_id is not None:
+            self._recorded_daily_attempts.add(attempt_id)
 
     def load_daily_game(self, day: str, catalog: Catalog) -> Game | None:
         """Restore the first fully valid daily save, trying the primary before its backup."""

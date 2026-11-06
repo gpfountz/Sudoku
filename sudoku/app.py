@@ -160,6 +160,8 @@ class AppController(NSObject):
             1.0, self, "tick:", None, True
         )
         self.save()
+        if self.save_problem:
+            self.refresh()
         if self.store.warnings:
             self.alert("Saved game recovery", "\n\n".join(self.store.warnings))
         if self.preferences.window_full_screen:
@@ -648,23 +650,46 @@ class AppController(NSObject):
         self.board.setNeedsDisplay_(True)
 
     @objc.python_method
-    def save(self) -> None:
-        """Persist progress and keep failures visible without interrupting play repeatedly."""
+    def save(self) -> bool:
+        """Persist progress, retry daily History, and report whether the board was saved."""
+        board_saved: bool = False
+        self.save_problem = ""
         try:
             if self.active_daily_date:
                 self.daily_games[self.active_daily_date] = self.game
                 self.store.save_daily_game(self.active_daily_date, self.game)
+                board_saved = True
             else:
                 self.regular_game = self.game
             self.store.save_game(self.regular_game)
+            board_saved = True
             self.store.save_active_daily_date(self.active_daily_date)
             self.store.save_preferences(self.preferences)
-            if self.game.complete and self.game.solved_at is not None:
-                self.history.record_completion(self.game, self.active_daily_date)
-            self.save_problem = ""
+            if (
+                self.active_daily_date is None
+                and self.game.complete
+                and self.game.solved_at is not None
+            ):
+                self.history.record_completion(self.game)
         except SaveError as error:
             self.save_problem = str(error)
+        try:
+            self.retry_daily_completions()
+        except SaveError as error:
+            self.save_problem = self.save_problem or str(error)
         self.last_save = time.monotonic()
+        return board_saved
+
+    @objc.python_method
+    def retry_daily_completions(self) -> None:
+        """Record saved daily solves regardless of which board is currently displayed."""
+        for day in self.store.pending_daily_dates():
+            game: Game | None = self.store.load_daily_game(day, self.catalog)
+            if game is None or game.solved_at is None:
+                self.store.clear_pending_daily_date(day)
+                continue
+            self.history.record_outcome(game, "Completed", game.solved_at, day)
+            self.store.clear_pending_daily_date(day, game.attempt_id)
 
     @objc.python_method
     def clear_hint(self) -> None:
@@ -1215,7 +1240,9 @@ class AppController(NSObject):
         """Leave daily progress saved and return to the current regular puzzle."""
         if self.active_daily_date:
             self.board.finish_gesture()
-            self.save()
+            if not self.save() and self.game.solved_at is not None:
+                self.alert("Cannot leave daily game", self.save_problem)
+                return
             self.active_daily_date = None
             self.game = self.regular_game
             self.completion_shown = self.game.complete
@@ -1349,7 +1376,12 @@ class AppController(NSObject):
                 self.changed()
                 self.window.makeFirstResponder_(self.board)
                 return
-            if not self.game.complete:
+            if self.game.solved_at is not None:
+                self.save()
+                if self.save_problem:
+                    self.alert("Cannot restart puzzle", self.save_problem)
+                    return
+            elif not self.game.complete:
                 try:
                     self.history.record_outcome(
                         self.game,
@@ -1597,9 +1629,10 @@ class AppController(NSObject):
     def set_daily_enabled(self, enabled: bool) -> None:
         """Show or hide local daily games while preserving saved progress."""
         self.board.finish_gesture()
-        self.preferences.daily_enabled = enabled
         if not enabled:
             self.returnRegular_(None)
+            enabled = self.active_daily_date is not None
+        self.preferences.daily_enabled = enabled
         self.settings_controls["daily_enabled"].setState_(int(enabled))
         self.update_daily_settings_visibility()
         self.save()
