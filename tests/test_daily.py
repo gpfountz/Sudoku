@@ -4,6 +4,7 @@
 
 """Local daily selection, date assignment, and progress persistence."""
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -16,7 +17,7 @@ from sudoku.catalog import Catalog, load_catalog
 from sudoku.daily import choose_daily_level
 from sudoku.history import HistoryStore
 from sudoku.model import LEVELS, Game, Preferences
-from sudoku.storage import SaveError, Store
+from sudoku.storage import SaveError, Store, game_data
 
 
 @pytest.mark.parametrize(
@@ -94,13 +95,17 @@ def test_daily_game_uses_regular_rotation_and_preserves_regular_game(tmp_path: P
     assert reopened.load_active_daily_date() == day
 
 
-def test_daily_button_reopens_today_without_a_chooser(tmp_path: Path) -> None:
+@pytest.mark.parametrize("backup_only", [False, True])
+def test_daily_button_reopens_today_without_a_chooser(tmp_path: Path, backup_only: bool) -> None:
     """Opening today's assigned puzzle never selects a second one."""
     catalog: Catalog = load_catalog()
     store: Store = Store(tmp_path)
     store.load_game(catalog)
     regular: Game = store.start_game("Easy")
     existing: Game = store.start_daily_game("2026-09-25", "Hard")
+    if backup_only:
+        path: Path = tmp_path / "catalog-daily-games/2026-09-25.json"
+        path.rename(path.with_suffix(".backup.json"))
     state: SimpleNamespace = SimpleNamespace(
         preferences=Preferences(daily_enabled=True),
         board=Mock(),
@@ -133,7 +138,8 @@ def test_daily_button_reopens_today_without_a_chooser(tmp_path: Path) -> None:
     assert len(list((tmp_path / "catalog-daily-games").glob("*.json"))) == 1
 
 
-def test_invalid_daily_save_does_not_assign_replacement(tmp_path: Path) -> None:
+@pytest.mark.parametrize("backup_only", [False, True])
+def test_invalid_daily_save_does_not_assign_replacement(tmp_path: Path, backup_only: bool) -> None:
     """Preserve damaged daily state and prevent a second game for its date."""
     catalog: Catalog = load_catalog()
     store: Store = Store(tmp_path)
@@ -141,8 +147,70 @@ def test_invalid_daily_save_does_not_assign_replacement(tmp_path: Path) -> None:
     day: str = "2026-09-25"
     store.start_daily_game(day, "Easy")
     path: Path = tmp_path / "catalog-daily-games" / f"{day}.json"
+    if backup_only:
+        path = path.rename(path.with_suffix(".backup.json"))
     path.write_text("broken")
     with pytest.raises(SaveError, match="unreadable"):
         Store(tmp_path).load_daily_game(day, catalog)
     with pytest.raises(SaveError, match="already been assigned"):
         store.start_daily_game(day, "Easy")
+    assert path.read_text() == "broken"
+
+
+@pytest.mark.parametrize("damage", ["missing", "syntax", "invalid_board", "invalid_puzzle_id"])
+def test_daily_backup_restores_progress_and_prevents_reassignment(
+    tmp_path: Path, damage: str
+) -> None:
+    """Recover the same attempt and protect the original until saving can safely resume."""
+    catalog: Catalog = load_catalog()
+    store: Store = Store(tmp_path)
+    store.load_game(catalog)
+    day: str = "2026-09-25"
+    daily: Game = store.start_daily_game(day, "Easy")
+    empty: int = daily.values.index(0)
+    daily.set_value(empty, daily.puzzle.solution[empty])
+    daily.elapsed = 23
+    store.save_daily_game(day, daily)
+    expected: dict[str, Any] = game_data(daily)
+    daily.elapsed = 47
+    store.save_daily_game(day, daily)
+    store.save_active_daily_date(day)
+    name: str = f"catalog-daily-games/{day}.json"
+    path: Path = tmp_path / name
+    backup: Path = path.with_suffix(".backup.json")
+    backup_contents: bytes = backup.read_bytes()
+    if damage == "missing":
+        path.unlink()
+    elif damage == "syntax":
+        path.write_text("broken")
+    else:
+        game_state: dict[str, Any] = game_data(daily)
+        if damage == "invalid_board":
+            game_state["board"]["values"][empty] = 10
+        else:
+            game_state["puzzle_id"] = ["invalid"]
+        path.write_text(json.dumps({"version": 1, "date": day, "game": game_state}))
+    damaged_contents: bytes | None = path.read_bytes() if path.exists() else None
+
+    reopened: Store = Store(tmp_path)
+    reopened.load_game(catalog)
+    assert reopened.load_active_daily_date() == day
+    with pytest.raises(SaveError, match="already been assigned"):
+        reopened.start_daily_game(day, "Easy")
+    restored: Game | None = reopened.load_daily_game(day, catalog)
+    assert restored is not None and game_data(restored) == expected
+    assert any("from its backup" in warning for warning in reopened.warnings)
+    if damaged_contents is not None:
+        assert path.read_bytes() == damaged_contents
+        with pytest.raises(SaveError, match="Recover Saving"):
+            reopened.save_daily_game(day, restored)
+        reopened.recover()
+        preserved: Path = next(path.parent.glob(f"{day}.unreadable-*.json"))
+        assert preserved.read_bytes() == damaged_contents
+    assert not path.exists()
+
+    restored.elapsed = 31
+    reopened.save_daily_game(day, restored)
+    assert backup.read_bytes() == backup_contents
+    resaved: Game | None = Store(tmp_path).load_daily_game(day, catalog)
+    assert resaved is not None and game_data(resaved) == game_data(restored)

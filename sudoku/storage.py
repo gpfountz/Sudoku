@@ -28,6 +28,14 @@ class SaveError(Exception):
     """Describe an unreadable or unwritable local save without destroying it."""
 
 
+def _read_save_document(path: Path) -> dict[str, Any]:
+    """Read a JSON object with the supported save version."""
+    data: Any = json.loads(path.read_text())
+    if not isinstance(data, dict) or data.get("version") != 1:
+        raise ValueError("Unsupported save version")
+    return data
+
+
 def snapshot_data(snapshot: Snapshot) -> dict[str, Any]:
     """Convert one immutable board snapshot into JSON-compatible data."""
     return {
@@ -226,9 +234,7 @@ class Store:
             return None
         for candidate in (path, path.with_suffix(".backup.json")):
             try:
-                data: Any = json.loads(candidate.read_text())
-                if not isinstance(data, dict) or data.get("version") != 1:
-                    raise ValueError("Unsupported save version")
+                data: dict[str, Any] = _read_save_document(candidate)
                 if candidate != path:
                     self.warnings.append(
                         f"Recovered {name} from its backup. The unreadable file was preserved."
@@ -344,7 +350,8 @@ class Store:
 
     def daily_game_exists(self, day: str) -> bool:
         """Report whether this local date already has an assigned puzzle."""
-        return (self.directory / "catalog-daily-games" / f"{day}.json").exists()
+        path: Path = self.directory / "catalog-daily-games" / f"{day}.json"
+        return path.exists() or path.with_suffix(".backup.json").exists()
 
     def start_daily_game(self, day: str, level: str) -> Game:
         """Assign one catalog puzzle to a date using the regular selection rotation."""
@@ -365,26 +372,57 @@ class Store:
         self.write(f"catalog-daily-games/{day}.json", {"date": day, "game": game_data(game)})
 
     def load_daily_game(self, day: str, catalog: Catalog) -> Game | None:
-        """Restore a day's assigned game from its stable catalog puzzle ID."""
+        """Restore the first fully valid daily save, trying the primary before its backup."""
         name: str = f"catalog-daily-games/{day}.json"
-        data: dict[str, Any] | None = self.read(name)
-        if data is None:
-            if self.daily_game_exists(day):
-                raise SaveError(f"The daily game for {day} is unreadable; its file was preserved")
-            return None
-        try:
-            if data["date"] != day:
-                raise ValueError("Daily game date does not match its file")
-            game_state: dict[str, Any] = data["game"]
-            puzzle: Puzzle | None = catalog.find(game_state["puzzle_id"])
-            if puzzle is None:
-                raise ValueError("Daily puzzle is missing from the catalog")
-            return game_from_data(game_state, puzzle)
-        except (KeyError, TypeError, ValueError, IndexError, AttributeError) as error:
+        path: Path = self.directory / name
+        backup: Path = path.with_suffix(".backup.json")
+        failures: list[str] = []
+        for candidate in (path, backup):
+            try:
+                data: dict[str, Any] = _read_save_document(candidate)
+                if data.get("date") != day:
+                    raise ValueError("Daily game date does not match its file")
+                game_state: object = data.get("game")
+                if not isinstance(game_state, dict):
+                    raise ValueError("Missing daily game state")
+                identifier: object = game_state.get("puzzle_id")
+                if not isinstance(identifier, str) or not identifier:
+                    raise ValueError("Invalid daily puzzle ID")
+                puzzle: Puzzle | None = catalog.find(identifier)
+                if puzzle is None:
+                    raise ValueError("Daily puzzle is missing from the catalog")
+                game: Game = game_from_data(game_state, puzzle)
+            except FileNotFoundError:
+                continue
+            except (
+                OSError,
+                ValueError,
+                KeyError,
+                TypeError,
+                IndexError,
+                OverflowError,
+                RecursionError,
+            ) as error:
+                failures.append(f"{candidate.name}: {error}")
+                continue
+            if candidate == backup:
+                if failures:
+                    self.blocked.add(name)
+                    self.warnings.append(
+                        f"Recovered {name} from its backup. The unreadable file was preserved."
+                    )
+                else:
+                    self.warnings.append(
+                        f"Recovered {name} from its backup. The primary was missing."
+                    )
+            return game
+        if failures:
             self.blocked.add(name)
             raise SaveError(
-                f"The daily game for {day} is invalid; its file was preserved: {error}"
-            ) from error
+                f"The daily game for {day} is unreadable. Its save files were preserved. "
+                + ". ".join(failures)
+            )
+        return None
 
     def save_active_daily_date(self, active_date: str | None) -> None:
         """Remember whether the app was showing a daily game at last save."""
