@@ -4,6 +4,10 @@
 
 """Idle timer updates must preserve state changes without redrawing an unchanged game."""
 
+import sqlite3
+from contextlib import closing
+from pathlib import Path
+from time import perf_counter
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock
@@ -11,7 +15,11 @@ from unittest.mock import Mock
 import pytest
 
 from sudoku.app import AppController
-from sudoku.model import Game, Preferences
+from sudoku.catalog import Catalog, level_filename
+from sudoku.history import HistoryStore
+from sudoku.model import Game, Preferences, Snapshot
+from sudoku.puzzle_import import ValidatedImport
+from sudoku.storage import Store
 
 
 @pytest.mark.parametrize(
@@ -94,6 +102,71 @@ def test_tick_refreshes_changed_status(
     AppController.tick_(controller, None)
     controller.refresh.assert_called_once()
     controller.refresh_timer.assert_not_called()
+
+
+@pytest.mark.parametrize("locked", ["player", "player_commit", "imported", "history"])
+def test_busy_autosave_reports_error_and_retries(
+    tmp_path: Path,
+    isolated_catalog: Catalog,
+    unmatched_import: ValidatedImport,
+    monkeypatch: pytest.MonkeyPatch,
+    locked: str,
+) -> None:
+    """A real SQLite lock briefly delays autosave and the next tick can commit safely."""
+    store: Store = Store(tmp_path)
+    store.load_game(isolated_catalog)
+    history: HistoryStore = HistoryStore(tmp_path / "history.sqlite3")
+    history.ensure_ready()
+    if locked == "imported":
+        game: Game = store.imported.start(unmatched_import, "Easy")
+        store.activate_replay(game)
+        database: Path = store.imported.path
+    else:
+        game = store.start_game("Easy")
+        database = (
+            history.path if locked == "history" else tmp_path / "players" / level_filename("Easy")
+        )
+    previous: Snapshot = game.snapshot()
+    if locked == "history":
+        game.values = list(game.puzzle.solution)
+        game.solved_at = "2026-11-06T12:00:00+00:00"
+    else:
+        cell: int = game.values.index(0)
+        assert game.set_value(cell, game.puzzle.solution[cell])
+
+    controller: Any = make_controller(game, monkeypatch, active=False)
+    controller.store = store
+    controller.history = history
+    controller.catalog = isolated_catalog
+    controller.preferences = Preferences()
+    controller.active_daily_date = None
+    controller.save.side_effect = lambda: AppController.save(controller)
+
+    with closing(sqlite3.connect(database)) as connection:
+        if locked == "player_commit":
+            connection.execute("BEGIN")
+            connection.execute("SELECT state FROM games").fetchone()
+        else:
+            connection.execute("BEGIN IMMEDIATE")
+        started: float = perf_counter()
+        AppController.tick_(controller, None)
+        assert perf_counter() - started < 1.0
+        assert "database is locked" in controller.save_problem
+        controller.refresh.assert_called_once()
+
+    persisted: Game | None = Store(tmp_path).load_game(isolated_catalog)
+    assert persisted is not None
+    assert persisted.snapshot() == (game.snapshot() if locked == "history" else previous)
+    assert history.count() == 0
+
+    controller.last_save = 0.0
+    AppController.tick_(controller, None)
+    assert controller.save_problem == ""
+    assert controller.refresh.call_count == 2
+    restored: Game | None = Store(tmp_path).load_game(isolated_catalog)
+    assert restored is not None and restored.snapshot() == game.snapshot()
+    if locked == "history":
+        assert history.has_outcome(game.attempt_id)
 
 
 @pytest.mark.parametrize(

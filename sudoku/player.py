@@ -15,7 +15,7 @@ from typing import Any
 
 from sudoku.catalog import Catalog, DifficultyCatalog, level_filename
 from sudoku.model import LEVELS, Game, Puzzle
-from sudoku.storage import SaveError, Store, game_data, game_from_data
+from sudoku.storage import SQLITE_LOCK_TIMEOUT_SECONDS, SaveError, Store, game_data, game_from_data
 
 SCHEMA: str = """
 CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
@@ -57,7 +57,7 @@ class PlayerStore:
         try:
             path: Path = self.store.directory / "players" / level_filename(level)
             path.parent.mkdir(parents=True, exist_ok=True)
-            connection = sqlite3.connect(path, timeout=10)
+            connection = sqlite3.connect(path, timeout=SQLITE_LOCK_TIMEOUT_SECONDS)
             version: int = connection.execute("PRAGMA user_version").fetchone()[0]
             if version not in (0, 1, 2):
                 raise SaveError(f"Unsupported player schema in {path}")

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from sudoku.hint_types import Hint
 from sudoku.model import Game
-from sudoku.storage import SaveError
+from sudoku.storage import SQLITE_LOCK_TIMEOUT_SECONDS, SaveError
 
 SCHEMA: str = """
 CREATE TABLE IF NOT EXISTS game_attempts (
@@ -83,7 +83,7 @@ class HistoryStore:
         if not self.path.exists():
             legacy_path.replace(self.path)
             return
-        with closing(sqlite3.connect(self.path, timeout=10)) as connection:
+        with closing(sqlite3.connect(self.path, timeout=SQLITE_LOCK_TIMEOUT_SECONDS)) as connection:
             connection.executescript(SCHEMA)
             connection.execute("ATTACH DATABASE ? AS legacy_history", (str(legacy_path),))
             try:
@@ -105,7 +105,7 @@ class HistoryStore:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             if not self.initialized:
                 self.migrate_legacy_database()
-            connection = sqlite3.connect(self.path, timeout=10)
+            connection = sqlite3.connect(self.path, timeout=SQLITE_LOCK_TIMEOUT_SECONDS)
             if not self.initialized:
                 connection.executescript(SCHEMA)
                 self.initialized = True

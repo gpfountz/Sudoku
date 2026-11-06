@@ -15,7 +15,7 @@ from typing import Any
 
 from sudoku.model import LEVELS, Game, Puzzle
 from sudoku.puzzle_import import ValidatedImport
-from sudoku.storage import SaveError, game_data, game_from_data
+from sudoku.storage import SQLITE_LOCK_TIMEOUT_SECONDS, SaveError, game_data, game_from_data
 
 SCHEMA: str = """
 CREATE TABLE IF NOT EXISTS puzzles(
@@ -46,7 +46,7 @@ class ImportedStore:
         connection: sqlite3.Connection | None = None
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            connection = sqlite3.connect(self.path, timeout=10)
+            connection = sqlite3.connect(self.path, timeout=SQLITE_LOCK_TIMEOUT_SECONDS)
             connection.execute("PRAGMA foreign_keys=ON")
             connection.execute("PRAGMA synchronous=FULL")
             version: int = connection.execute("PRAGMA user_version").fetchone()[0]

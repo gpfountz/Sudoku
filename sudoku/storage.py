@@ -24,6 +24,8 @@ if TYPE_CHECKING:
     from sudoku.player import PlayerStore
 
 PENDING_DAILY_COMPLETIONS: str = "pending-daily-completions"
+# AppKit calls these stores synchronously. Autosave can retry after a longer lock clears.
+SQLITE_LOCK_TIMEOUT_SECONDS: float = 0.05
 
 
 class SaveError(Exception):
