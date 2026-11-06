@@ -49,12 +49,27 @@ if [[ ! -x .venv/bin/python ]]; then
     exit 1
 fi
 
+applications_dir="$(.venv/bin/python -m sudoku.build_paths "$applications_dir")"
+installed_bundle="$applications_dir/Sudoku.app"
+
+# The shell retains the locked directory descriptor until its EXIT cleanup finishes.
+exec 9< "$applications_dir"
+.venv/bin/python - "$applications_dir" <<'PYTHON'
+import fcntl
+import sys
+
+try:
+    fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    sys.exit(f"Another Sudoku deployment is using {sys.argv[1]}. Retry when it finishes.")
+except OSError as error:
+    sys.exit(f"Could not lock the Sudoku installation directory ({error}).")
+PYTHON
+
 if [[ -z "$release_dir" ]]; then
     release_dir="$(mktemp -d /private/tmp/sudoku-release.XXXXXX)"
 fi
 release_dir="$(.venv/bin/python -m sudoku.build_paths "$release_dir")"
-applications_dir="$(.venv/bin/python -m sudoku.build_paths "$applications_dir")"
-installed_bundle="$applications_dir/Sudoku.app"
 
 printf 'Installing reviewed dependencies from requirements-dev.txt...\n'
 .venv/bin/python -m pip install -r requirements-dev.txt
@@ -67,7 +82,6 @@ ditto -x -k "$release_dir/Sudoku.zip" "$extraction_dir"
 codesign --verify --deep --strict "$extraction_dir/Sudoku.app"
 
 # Stage on the destination filesystem so installation uses a directory rename.
-mkdir -p "$applications_dir"
 installation_dir="$(mktemp -d "$applications_dir/.sudoku-install.XXXXXX")"
 ditto --norsrc "$extraction_dir/Sudoku.app" "$installation_dir/Sudoku.app"
 codesign --verify --deep --strict "$installation_dir/Sudoku.app"

@@ -113,7 +113,7 @@ def prepare_directory(directory: Path) -> Path:
         try:
             verify_directory(path)
         except FileNotFoundError:
-            path.mkdir(mode=0o700)
+            path.mkdir(mode=0o700, exist_ok=True)
             verify_directory(path, require_owner=True)
     verify_directory(canonical, require_owner=True)
     return canonical

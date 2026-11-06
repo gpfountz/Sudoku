@@ -228,6 +228,7 @@ games and preferences remain in Application Support. Launch the installed app no
 Build output and `Sudoku.zip` remain in a new private `/private/tmp/sudoku-release.XXXXXX/` directory,
 outside cloud sync. The helper prints its exact archive path on success; keep that path for transfers.
 `SUDOKU_RELEASE_DIR` and `SUDOKU_APPLICATIONS_DIR` can override the output and installation folders.
+A second deployment to the same installation folder exits while the first holds the folder lock.
 Both destinations must be owned by your account and must not be writable by another account.
 Their ancestors must be owned by your account or root and must not permit shared writes, except
 for root-owned sticky temporary directories. macOS ACL write grants, including inheritable grants,

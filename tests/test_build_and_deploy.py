@@ -10,6 +10,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic, sleep
 
 import pytest
 
@@ -18,7 +19,7 @@ set -euo pipefail
 tool="${0##*/}"
 case "$tool" in
     python)
-        if [[ "$1" == -m && "$2" == sudoku.build_paths ]]; then
+        if [[ "$1" == - || ( "$1" == -m && "$2" == sudoku.build_paths ) ]]; then
             exec "$SUDOKU_TEST_PYTHON" "$@"
         fi
         if [[ "$1" == -m && "$2" == pip ]]; then
@@ -76,7 +77,13 @@ case "$tool" in
         ;;
     codesign) test -f "$4/Contents/Resources/version.txt" ;;
     osascript) cat > /dev/null ;;
-    mv) /bin/mv "$@" ;;
+    mv)
+        if [[ "$step" == "${SUDOKU_TEST_PAUSE_STEP:-}" ]]; then
+            touch "$SUDOKU_TEST_PAUSE_MARKER"
+            read -r -t 15
+        fi
+        /bin/mv "$@"
+        ;;
 esac
 """
 
@@ -210,6 +217,67 @@ def test_failed_installation_restores_previous_bundle(
     assert (resources / "retired.txt").is_file()
     assert deployment_check.log.read_text().splitlines()[-1] == "restore"
     assert not list(deployment_check.applications.glob(".sudoku-install.*"))
+
+
+@pytest.mark.parametrize("phase", ["replace", "restore"])
+def test_overlapping_deployment_cannot_install_during_replacement_or_rollback(
+    deployment_check: DeploymentCheck, tmp_path: Path, phase: str
+) -> None:
+    """Hold the destination lock even while Sudoku.app is temporarily absent."""
+    installed: Path = deployment_check.applications / "Sudoku.app"
+    marker: Path = tmp_path / "paused"
+    competing_log: Path = tmp_path / "competing.log"
+    competing_release: Path = tmp_path / "competing release"
+    command: list[str] = [str(deployment_check.script)]
+    with subprocess.Popen(
+        command,
+        cwd=tmp_path,
+        env={
+            **deployment_check.environment,
+            "SUDOKU_TEST_PAUSE_STEP": phase,
+            "SUDOKU_TEST_PAUSE_MARKER": str(marker),
+            "SUDOKU_TEST_FAILURE": "verify-installed",
+        },
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ) as first:
+        try:
+            deadline: float = monotonic() + 5
+            while not marker.exists() and first.poll() is None and monotonic() < deadline:
+                sleep(0.01)
+            assert marker.exists()
+            assert not installed.exists()
+            competing: subprocess.CompletedProcess[str] = subprocess.run(
+                command,
+                cwd=tmp_path,
+                env={
+                    **deployment_check.environment,
+                    "SUDOKU_APPLICATIONS_DIR": str(
+                        deployment_check.applications / ".." / deployment_check.applications.name
+                    ),
+                    "SUDOKU_RELEASE_DIR": str(competing_release),
+                    "SUDOKU_TEST_LOG": str(competing_log),
+                },
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            assert competing.returncode != 0
+            assert "Another Sudoku deployment" in competing.stderr
+            assert not competing_log.exists() and not competing_release.exists()
+            assert not installed.exists()
+        finally:
+            _, errors = first.communicate("\n", timeout=10)
+        assert first.returncode == 19, errors
+
+    version: Path = installed / "Contents/Resources/version.txt"
+    assert version.read_text() == "previous bundle\n"
+    result: subprocess.CompletedProcess[str] = deployment_check.run()
+    assert result.returncode == 0, result.stderr
+    assert version.read_text() == "new bundle\n"
 
 
 def test_failed_backup_keeps_previous_bundle(deployment_check: DeploymentCheck) -> None:
