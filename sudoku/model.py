@@ -150,7 +150,7 @@ class Game:
 
     def begin_gesture(self) -> None:
         """Group a sequence of pointer or keyboard edits into one undo action."""
-        if self._group is None:
+        if self._group is None and self.can_edit_board:
             self._group = self.snapshot()
 
     def end_gesture(self) -> bool:
@@ -164,7 +164,7 @@ class Game:
     def can_edit_answer(self, index: int, error_check: str = "Off") -> bool:
         """Protect givens and answers verified by the active solution-checking policy."""
         return (
-            not self.paused
+            self.can_edit_board
             and not self.puzzle.givens[index]
             and not (
                 error_check == "Against Solution"
@@ -193,7 +193,7 @@ class Game:
 
     def mark(self, index: int, digit: int, operation: str = "toggle") -> bool:
         """Toggle, add, or remove a candidate without editing filled cells."""
-        if self.paused or self.values[index] or digit not in DIGITS:
+        if not self.can_edit_board or self.values[index] or digit not in DIGITS:
             return False
         before: Snapshot = self.snapshot()
         if operation == "remove" or (operation == "toggle" and digit in self.notes[index]):
@@ -216,7 +216,7 @@ class Game:
 
     def paint_color(self, index: int, operation: str = "toggle") -> bool:
         """Set or clear a cell highlight, including on givens and filled cells."""
-        if self.paused or not 0 <= index < 81:
+        if not self.can_edit_board or not 0 <= index < 81:
             return False
         before: Snapshot = self.snapshot()
         if operation == "remove" or self.active_color == 9:
@@ -229,7 +229,7 @@ class Game:
 
     def clear_all_colors(self) -> bool:
         """Remove every cell highlight as one reversible board edit."""
-        if self.paused:
+        if not self.can_edit_board:
             return False
         before: Snapshot = self.snapshot()
         self.colors = [0] * 81
@@ -247,7 +247,7 @@ class Game:
 
     def fill_candidates(self) -> bool:
         """Replace notes with legal candidates based only on current constraints."""
-        if self.paused:
+        if not self.can_edit_board:
             return False
         before: Snapshot = self.snapshot()
         self.notes = candidates(self.values)
@@ -285,8 +285,8 @@ class Game:
         return placements
 
     def auto_complete_singles(self, cleanup: bool = True) -> int:
-        """Cascade logical singles and correct lone pencil marks as one reversible edit."""
-        if self.paused or self.complete or self.wrong_answers():
+        """Cascade logical singles and correct lone pencil marks in one board edit."""
+        if not self.can_edit_board or self.wrong_answers():
             return 0
         before: Snapshot = self.snapshot()
         completed: int = 0
@@ -307,7 +307,7 @@ class Game:
 
     def eliminate(self, removals: tuple[tuple[int, int], ...]) -> bool:
         """Apply verified hint exclusions and show remaining candidates in affected cells."""
-        if self.paused:
+        if not self.can_edit_board:
             return False
         if any(
             self.values[index] or digit == self.puzzle.solution[index] for index, digit in removals
@@ -332,7 +332,7 @@ class Game:
     def undo(self) -> bool:
         """Reverse the most recent complete board edit."""
         self.end_gesture()
-        if self.paused or not self.undo_stack:
+        if not self.can_edit_board or not self.undo_stack:
             return False
         self.redo_stack.append(self.snapshot())
         self.restore(self.undo_stack.pop())
@@ -340,7 +340,7 @@ class Game:
 
     def redo(self) -> bool:
         """Reapply the most recently undone board edit."""
-        if self.paused or not self.redo_stack:
+        if not self.can_edit_board or not self.redo_stack:
             return False
         self.undo_stack.append(self.snapshot())
         self.restore(self.redo_stack.pop())
@@ -381,6 +381,11 @@ class Game:
     def complete(self) -> bool:
         """Report completion only when every value matches the validated solution."""
         return tuple(self.values) == self.puzzle.solution
+
+    @property
+    def can_edit_board(self) -> bool:
+        """Allow board edits only during unfinished, unpaused play."""
+        return not self.paused and not self.complete
 
     def move(self, row_delta: int, column_delta: int) -> int:
         """Move within board bounds without wrapping rows or columns."""

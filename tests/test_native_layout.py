@@ -23,6 +23,7 @@ from Foundation import NSDate, NSProcessInfo, NSRunLoop, NSTimer
 from scripts.preview_hint_links import preview_game, preview_hint
 from sudoku.app import AppController
 from sudoku.board import CandidateLayout, SudokuBoard, candidate_layout
+from sudoku.catalog import Catalog
 from sudoku.celebration import CompletionOverlay
 from sudoku.compatibility import action_bezel_style
 from sudoku.context_menu import CellContextMenu
@@ -2956,6 +2957,74 @@ def test_vertical_entry_controls_and_board_fit(
     assert c.preferences.input_order == "Number First"
     assert c.game.note_mode
     assert c.game.snapshot() == before
+
+
+def test_completed_board_stays_solved_after_input_and_reload(
+    native_controller: Any, tmp_path: Path, isolated_catalog: Catalog
+) -> None:
+    """Keep Delete, edit commands, mouse input, and accessible selection consistent."""
+    controller: Any = native_controller
+    controller.catalog = isolated_catalog
+    controller.store = Store(tmp_path)
+    controller.store.load_game(isolated_catalog)
+    controller.history = HistoryStore(tmp_path / "history.sqlite3")
+    controller.active_daily_date = None
+    controller.daily_games = {}
+    controller.current_hint = None
+    controller.hint_stage = 0
+    game: Game = controller.store.start_game("Easy")
+    controller.game = game
+    first: int = next(i for i, digit in enumerate(game.puzzle.givens) if not digit and i % 9 != 8)
+    second: int = next(i for i, digit in enumerate(game.puzzle.givens) if not digit and i != first)
+    game.selected = first
+    game.paint_color(first)
+    for index, digit in enumerate(game.puzzle.solution):
+        game.set_value(index, digit)
+    game.solved_at = "2026-10-15T12:00:00+00:00"
+    assert controller.save()
+    controller.refresh()
+    board: Any = controller.board
+    before: Snapshot = game.snapshot()
+
+    for name in ("undo", "redo", "erase", "fill", "auto_complete", "hint"):
+        assert not controller.controls[name].isEnabled()
+    menu: Any = AK.NSMenu.alloc().initWithTitle_("Edit")
+    controller.menu_item(menu, "Undo", "undo:", "z")
+    menu.update()
+    assert not menu.itemAtIndex_(0).isEnabled()
+
+    delete: Any = SimpleNamespace(
+        charactersIgnoringModifiers=lambda: "\x7f", modifierFlags=lambda: 0
+    )
+    board.keyDown_(delete)
+    controller.undo_(None)
+    assert game.complete
+
+    controller.preferences.input_order = "Number First"
+    game.color_mode = True
+    cell: Any = board.cell_rect(second)
+    point: Any = board.convertPoint_toView_((AK.NSMidX(cell), AK.NSMidY(cell)), None)
+    mouse: Any = SimpleNamespace(modifierFlags=lambda: 0, locationInWindow=lambda: point)
+    board.mouseDown_(mouse)
+    board.mouseDragged_(mouse)
+    board.mouseUp_(mouse)
+    assert game.selected == second
+    assert board.accessibilityChildren()[first].accessibilityPerformPress()
+    assert game.selected == first
+    right: Any = SimpleNamespace(
+        charactersIgnoringModifiers=lambda: "\uf703",
+        charactersByApplyingModifiers_=lambda modifiers: "\uf703",
+        modifierFlags=lambda: AK.NSEventModifierFlagShift,
+    )
+    board.keyDown_(right)
+    assert game.selected == first + 1
+
+    assert controller.save()
+    restored: Game | None = Store(tmp_path).load_game(isolated_catalog)
+    assert restored is not None and restored.snapshot() == before
+    assert restored.complete and restored.solved_at == game.solved_at
+    (entry,) = controller.history.page(0)
+    assert entry.attempt_id == restored.attempt_id and entry.status == "Completed"
 
 
 @pytest.mark.parametrize("notes", [False, True])

@@ -201,19 +201,42 @@ def test_fill_candidates_uses_entries_and_is_undoable(game: Game) -> None:
     assert game.snapshot() == before
 
 
-def test_auto_complete_cascades_and_undoes_as_one_action(game: Game) -> None:
-    """Recompute forced singles until solved and retain one history entry for the cascade."""
+def test_auto_complete_cascades_until_the_board_is_solved(game: Game) -> None:
+    """Recompute forced singles until solved and retain one snapshot for the cascade."""
     blanks: set[int] = {6, 10, 16, 20, 22, 37, 44, 54, 58, 63, 64, 66, 68, 72, 78}
     singles_game: Game = game_with_blanks(game, blanks)
     before: Snapshot = singles_game.snapshot()
     assert len(singles_game.forced_single_placements()) == 14
     assert singles_game.auto_complete_singles() == 15
     assert singles_game.complete
-    assert len(singles_game.undo_stack) == 1
-    assert singles_game.undo()
-    assert singles_game.snapshot() == before
-    assert singles_game.redo()
-    assert singles_game.complete
+    assert singles_game.undo_stack == [before]
+    assert not singles_game.undo()
+
+
+def test_completed_board_rejects_edits_and_undo_redo(game: Game) -> None:
+    """Keep a solved board and its saved edit history intact."""
+    solved: Game = game_with_blanks(game, {1})
+    solved.paint_color(1)
+    before: Snapshot = solved.snapshot()
+    assert solved.set_value(1, solved.puzzle.solution[1])
+    solved.redo_stack.append(before)
+    completed: Snapshot = solved.snapshot()
+    undo: list[Snapshot] = list(solved.undo_stack)
+
+    solved.begin_gesture()
+    assert not solved.can_edit_answer(1)
+    assert not solved.set_value(1, 9)
+    assert not solved.clear(1)
+    assert not solved.mark(1, 9)
+    assert not solved.paint_color(1)
+    assert not solved.clear_all_colors()
+    assert not solved.fill_candidates()
+    assert not solved.eliminate(((1, 9),))
+    assert not solved.undo()
+    assert not solved.redo()
+    assert not solved.end_gesture()
+    assert solved.snapshot() == completed
+    assert solved.undo_stack == undo and solved.redo_stack == [before]
 
 
 def test_auto_complete_includes_hidden_singles(game: Game) -> None:

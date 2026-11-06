@@ -243,6 +243,12 @@ class AppController(NSObject):
         AK.NSApplication.sharedApplication().setMainMenu_(bar)
         AK.NSApplication.sharedApplication().setWindowsMenu_(menus["Window"])
 
+    def validateMenuItem_(self, item: Any) -> bool:
+        """Enable board edit commands only while the current board is playable."""
+        if item.action() in ("undo:", "redo:", "erase:", "fill:", "autoComplete:", "hint:"):
+            return self.game.can_edit_board
+        return True
+
     @objc.python_method
     def build_window(self) -> None:
         """Construct the game window with a board and native control sidebar."""
@@ -554,7 +560,7 @@ class AppController(NSObject):
         )
         self.controls["palette_label"].setStringValue_(self.palette_status_text(game))
         self.controls["pause"].setTitle_("Resume" if game.paused else "Pause")
-        can_play: bool = not game.paused and not game.complete
+        can_play: bool = game.can_edit_board
         self.controls["pause"].setEnabled_(not game.complete)
         self.controls["daily"].setHidden_(not self.preferences.daily_enabled)
         today_game: Game | None = self.daily_games.get(date.today().isoformat())
@@ -568,7 +574,7 @@ class AppController(NSObject):
         self.controls["timer"].setHidden_(not self.preferences.show_timer)
         self.refresh_timer()
         self.controls["undo"].setEnabled_(bool(game.undo_stack) and can_play)
-        self.controls["redo"].setEnabled_(bool(game.redo_stack) and not game.paused)
+        self.controls["redo"].setEnabled_(bool(game.redo_stack) and can_play)
         self.controls["erase"].setEnabled_(
             can_play
             and (
@@ -617,7 +623,9 @@ class AppController(NSObject):
                 else ""
             )
         footer: str
-        if game.color_mode:
+        if game.complete:
+            footer = "Completed board is read-only"
+        elif game.color_mode:
             footer = "Drag or Shift + arrows paint colors"
         elif game.note_mode:
             footer = "Notes: drag or Shift + arrows"
@@ -856,6 +864,7 @@ class AppController(NSObject):
     def select_digit(self, digit: int, select_only: bool) -> None:
         """Share keypad selection and optional cell entry across mouse actions."""
         self.board.finish_gesture()
+        select_only = select_only or not self.game.can_edit_board
         if self.game.color_mode:
             if digit == 9 and not select_only and self.clear_all_game is self.game:
                 self.clear_all_game = None
@@ -957,8 +966,10 @@ class AppController(NSObject):
         self.window.makeFirstResponder_(self.board)
 
     def autoComplete_(self, sender: Any) -> None:
-        """Apply logical singles and correct lone pencil marks as one undoable action."""
+        """Apply logical singles and correct lone pencil marks in one board edit."""
         self.board.finish_gesture()
+        if not self.game.can_edit_board:
+            return
         if self.game.wrong_answers():
             self.alert(
                 "Check your entries first",
@@ -1399,7 +1410,7 @@ class AppController(NSObject):
 
     def hint_(self, sender: Any) -> None:
         """Offer a nudge, then an explanation, or clearly label missing solver coverage."""
-        if self.game.paused or self.game.complete:
+        if not self.game.can_edit_board:
             return
         self.board.finish_gesture()
         wrong: set[int] = self.game.wrong_answers()
@@ -1448,13 +1459,13 @@ class AppController(NSObject):
 
     def previousHint_(self, sender: Any) -> None:
         """Return to the preceding explanation stage without changing the board."""
-        if self.current_hint and not self.game.paused:
+        if self.current_hint and self.game.can_edit_board:
             self.hint_stage = max(1, self.hint_stage - 1)
             self.present_hint()
 
     def anotherHint_(self, sender: Any) -> None:
         """Show a different supported deduction, cycling after the final alternative."""
-        if self.game.paused or self.game.complete or self.game.wrong_answers():
+        if not self.game.can_edit_board or self.game.wrong_answers():
             return
         if self.hint_iterator is None:
             self.hint_iterator = iter_hints(self.game)
@@ -1478,9 +1489,13 @@ class AppController(NSObject):
             self.refresh()
 
     def applyHint_(self, sender: Any) -> None:
-        """Apply exactly the displayed deduction as one reversible action."""
+        """Apply exactly the displayed deduction in one board edit."""
         hint: Hint | None = self.current_hint
-        if not hint or self.hint_stage < len(hint_steps(self.game, hint)) or self.game.paused:
+        if (
+            not self.game.can_edit_board
+            or not hint
+            or self.hint_stage < len(hint_steps(self.game, hint))
+        ):
             return
         self.game.begin_gesture()
         for index, digit in hint.placements:
@@ -1499,7 +1514,7 @@ class AppController(NSObject):
 
     def reveal_(self, sender: Any) -> None:
         """Reveal an explicitly selected editable cell with an honest spoiler warning."""
-        if self.game.paused:
+        if not self.game.can_edit_board:
             return
         index: int = self.game.selected
         if self.game.puzzle.givens[index] or self.game.values[index]:
@@ -1512,7 +1527,7 @@ class AppController(NSObject):
             self.alert(
                 "Reveal this cell?",
                 f"This supplies the answer at {cell_name(index)} without explaining a deduction. "
-                "You can undo the reveal.",
+                "You can undo the reveal while the puzzle is in progress.",
                 ("Cancel", "Reveal"),
             )
             == 1

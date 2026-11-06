@@ -65,7 +65,8 @@ current answers. It is undoable and does not continuously refill.
 **Auto Complete** repeatedly fills cells with one legal candidate and digits with one legal position
 in a row, column, or box. It also fills a cell with a single pencil mark when that mark matches the
 saved solution; incorrect lone marks are skipped. New singles created by those answers or note
-cleanup are filled in the same cascade, using one undo action.
+cleanup are filled in the same cascade. While the puzzle is in progress, Undo reverses the
+whole cascade in one step.
 
 ### Cell colors
 
@@ -81,7 +82,8 @@ Color changes can be undone.
 The timer stops while paused, minimized, or outside the app. **Undo**, **Erase**,
 **Fill Candidates**, **Auto Complete**, and **Get Hint** are disabled while paused or complete.
 The **Pause** button changes to **Resume** while paused; click it or press **Command-P** to resume.
-**Restart…** resets the current puzzle after confirmation.
+Completed boards are read-only and still support cell selection. **Restart…** starts a fresh
+attempt on the same puzzle after confirmation.
 
 Closing the app saves progress. Relaunching restores answers, candidates, colors, timer, tools,
 and undo/redo history. Native macOS Full Screen is also remembered: closing the window or quitting

@@ -281,19 +281,27 @@ def test_pending_daily_date_does_not_record_an_unsaved_board(controller: Any) ->
 
 
 @pytest.mark.parametrize("source", ["imported", "regular", "catalog_replay"])
-def test_restart_has_new_persisted_attempt(controller: Any, source: str) -> None:
-    """Keep immutable clues and ID while recording Restarted and publishing a fresh attempt."""
+@pytest.mark.parametrize("completed", [False, True])
+def test_restart_has_new_persisted_attempt(controller: Any, source: str, completed: bool) -> None:
+    """Keep the prior attempt's outcome and publish a fresh editable board on the same clues."""
     if source == "imported":
         assert controller.play_import(import_puzzle(controller), "Hard")
     elif source == "catalog_replay":
         controller.replay_puzzle(controller.game.puzzle.identifier)
     previous: Game = controller.game
+    if completed:
+        previous.values = list(previous.puzzle.solution)
+        previous.solved_at = "2026-10-03T12:00:00+00:00"
+        controller.save()
+        assert not previous.can_edit_board
     controller.alert.return_value = 1
     controller.restart_(None)
     assert controller.game.puzzle == previous.puzzle
     assert controller.game.attempt_id != previous.attempt_id
+    assert controller.game.can_edit_board
+    status: str = "Completed" if completed else "Restarted"
     assert any(
-        record.attempt_id == previous.attempt_id and record.status == "Restarted"
+        record.attempt_id == previous.attempt_id and record.status == status
         for record in controller.history.page(0)
     )
     with pytest.raises(SaveError, match="no longer active"):

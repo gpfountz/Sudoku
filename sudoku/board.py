@@ -652,19 +652,16 @@ class SudokuBoard(AK.NSView):
 
     @objc.python_method
     def update_cursor(self) -> None:
-        """Refresh Cocoa cursor regions when entry mode or pause state changes."""
-        candidate: bool = (
-            self.controller.game.note_mode
-            and not self.controller.game.color_mode
-            and not self.controller.game.paused
-        )
+        """Refresh Cocoa cursor regions when entry mode or editability changes."""
+        game: Game = self.controller.game
+        candidate: bool = game.can_edit_board and game.note_mode and not game.color_mode
         if candidate != self.cursor_is_candidate:
             self.cursor_is_candidate = candidate
             if self.window():
                 self.window().invalidateCursorRectsForView_(self)
 
     def resetCursorRects(self) -> None:
-        """Use the pencil only over an unpaused board in candidate mode."""
+        """Use the pencil only over an editable board in candidate mode."""
         cursor: Any = (
             self.candidate_cursor() if self.cursor_is_candidate else AK.NSCursor.arrowCursor()
         )
@@ -689,7 +686,7 @@ class SudokuBoard(AK.NSView):
     def apply_active_digit(self, index: int, operation: str = "toggle") -> bool:
         """Apply a number-first cell activation; cell-first activation only selects."""
         game: Game = self.controller.game
-        if self.controller.preferences.input_order != "Number First":
+        if not game.can_edit_board or self.controller.preferences.input_order != "Number First":
             return False
         if game.color_mode:
             return game.paint_color(index, operation)
@@ -700,7 +697,7 @@ class SudokuBoard(AK.NSView):
     def rightMouseDown_(self, event: Any) -> None:
         """Show answer, candidate, and color choices for the clicked cell."""
         game: Game = self.controller.game
-        if game.paused or game.complete:
+        if not game.can_edit_board:
             return
         index: int | None = self.index_at_event(event)
         if index is None:
@@ -725,7 +722,8 @@ class SudokuBoard(AK.NSView):
         if event.modifierFlags() & AK.NSEventModifierFlagControl:
             self.rightMouseDown_(event)
             return
-        if self.controller.game.paused:
+        game: Game = self.controller.game
+        if game.paused:
             return
         self.window().makeFirstResponder_(self)
         index: int | None = self.index_at_event(event)
@@ -733,29 +731,29 @@ class SudokuBoard(AK.NSView):
             return
         self.finish_gesture()
         self.controller.clear_all_game = None
-        self.drag_origin = self.drag_last = index
-        self.drag_point = self.point_at_event(event)
-        self.dragging = False
-        self.controller.game.selected = index
-        self.controller.game.begin_gesture()
-        self.drag_operation = (
-            self.controller.game.color_stroke_operation(index)
-            if self.controller.game.color_mode
-            else self.controller.game.candidate_stroke_operation(
-                index,
-                self.controller.game.active_digit,
-                bool(event.modifierFlags() & AK.NSEventModifierFlagOption),
+        game.selected = index
+        if game.can_edit_board:
+            self.drag_origin = self.drag_last = index
+            self.drag_point = self.point_at_event(event)
+            game.begin_gesture()
+            self.drag_operation = (
+                game.color_stroke_operation(index)
+                if game.color_mode
+                else game.candidate_stroke_operation(
+                    index,
+                    game.active_digit,
+                    bool(event.modifierFlags() & AK.NSEventModifierFlagOption),
+                )
             )
-        )
         self.controller.refresh()
 
     def mouseDragged_(self, event: Any) -> None:
         """Wait for intentional candidate movement, then paint crossed cell interiors."""
         point: tuple[float, float] = self.point_at_event(event)
         index: int | None = self.index_at_event(event)
-        if self.drag_point is None or self.drag_last is None:
-            return
         game: Game = self.controller.game
+        if not game.can_edit_board or self.drag_point is None or self.drag_last is None:
+            return
         paints: bool = game.color_mode or candidate_painting_enabled(
             game, self.controller.preferences
         )
@@ -855,8 +853,12 @@ class SudokuBoard(AK.NSView):
             "\uf703": (0, 1),
         }
         if text in moves:
-            painting: bool = bool(flags & AK.NSEventModifierFlagShift) and (
-                game.color_mode or candidate_painting_enabled(game, self.controller.preferences)
+            painting: bool = (
+                game.can_edit_board
+                and bool(flags & AK.NSEventModifierFlagShift)
+                and (
+                    game.color_mode or candidate_painting_enabled(game, self.controller.preferences)
+                )
             )
             if painting:
                 if not self.keyboard_painting:
@@ -889,6 +891,8 @@ class SudokuBoard(AK.NSView):
             return
         self.finish_gesture()
         if text in (" ", "\r", "\n", "\x03"):
+            if not game.can_edit_board:
+                return
             paint_candidate: bool = (
                 bool(flags & AK.NSEventModifierFlagShift)
                 and not game.color_mode
@@ -920,12 +924,9 @@ class SudokuBoard(AK.NSView):
             if game.color_mode:
                 self.controller.select_digit(int(text), False)
                 return
-            else:
-                game.active_digit = int(text)
-            if self.controller.preferences.input_order == "Cell First":
-                if game.color_mode:
-                    game.paint_color(game.selected)
-                elif game.note_mode:
+            game.active_digit = int(text)
+            if game.can_edit_board and self.controller.preferences.input_order == "Cell First":
+                if game.note_mode:
                     game.mark(game.selected, game.active_digit)
                 else:
                     self.controller.enter_answer(game.selected, game.active_digit)

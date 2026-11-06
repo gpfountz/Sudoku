@@ -124,13 +124,13 @@ class CellContextMenu(NSObject):
             item: Any = AK.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(mode, None, "")
             submenu: Any = self.color_submenu() if mode == "Color" else self.digit_submenu(mode)
             item.setSubmenu_(submenu)
-            item.setEnabled_(
-                mode == "Color"
-                or (
-                    game.can_edit_answer(self.index, self.board.controller.preferences.error_check)
-                    and (mode == "Answer" or not game.values[self.index])
-                )
-            )
+            if mode == "Color":
+                enabled: bool = game.can_edit_board
+            else:
+                enabled = game.can_edit_answer(
+                    self.index, self.board.controller.preferences.error_check
+                ) and (mode == "Answer" or not game.values[self.index])
+            item.setEnabled_(enabled)
             menu.addItem_(item)
         self.menu = menu
         return menu
@@ -254,9 +254,7 @@ class CellContextMenu(NSObject):
     def chooseAnswer_(self, sender: Any) -> None:
         """Set an answer at the clicked editable cell without changing input mode."""
         game: Game = self.board.controller.game
-        if game.complete or not game.can_edit_answer(
-            self.index, self.board.controller.preferences.error_check
-        ):
+        if not game.can_edit_answer(self.index, self.board.controller.preferences.error_check):
             return
         digit: int = int(sender.tag())
         game.active_digit = digit
@@ -266,7 +264,7 @@ class CellContextMenu(NSObject):
     def chooseCandidate_(self, sender: Any) -> None:
         """Toggle a candidate at the clicked empty cell without changing input mode."""
         game: Game = self.board.controller.game
-        if game.paused or game.complete or game.values[self.index]:
+        if not game.can_edit_board or game.values[self.index]:
             return
         digit: int = int(sender.tag())
         game.active_digit = digit
@@ -275,7 +273,7 @@ class CellContextMenu(NSObject):
     def chooseColor_(self, sender: Any) -> None:
         """Toggle the chosen color on the clicked cell without changing input mode."""
         game: Game = self.board.controller.game
-        if game.paused or game.complete:
+        if not game.can_edit_board:
             return
         game.active_color = int(sender.tag())
         self.finish_action(game.paint_color(self.index))
