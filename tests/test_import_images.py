@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, Mock
 
+import AppKit as AK
 import cv2
 import numpy as np
 import pytest
@@ -25,6 +26,7 @@ from sudoku.import_images import (
     recognize_digit,
     recognize_grid,
 )
+from sudoku.import_ui import ImportWindow
 
 ROWS: tuple[str, ...] = (
     "530070000",
@@ -85,6 +87,30 @@ def test_file_at_size_limit_preserves_exact_bytes(
     data: bytes = b"0123456789abcdef"
     path.write_bytes(data)
     assert read_image_file(path) == data
+
+
+@pytest.mark.parametrize("image_type", [AK.NSPasteboardTypePNG, "public.jpeg", "public.svg-image"])
+def test_oversized_clipboard_image_is_rejected_before_copy_or_worker(
+    monkeypatch: pytest.MonkeyPatch, image_type: str
+) -> None:
+    """Reject native data by length without copying it or starting a worker job."""
+    monkeypatch.setattr("sudoku.import_images.MAX_IMAGE_BYTES", 16)
+    data: Mock = Mock(length=Mock(return_value=17))
+    pasteboard: Mock = Mock()
+    pasteboard.types.return_value = [image_type, AK.NSPasteboardTypeString]
+    pasteboard.dataForType_.return_value = data
+    monkeypatch.setattr(AK, "NSPasteboard", Mock(generalPasteboard=Mock(return_value=pasteboard)))
+    review: Any = ImportWindow.alloc().init()
+    status: Mock = Mock()
+    review.controls = {"status": status}
+    review.load_image = Mock()
+
+    review.readClipboard_(None)
+
+    data.length.assert_called_once_with()
+    review.load_image.assert_not_called()
+    pasteboard.stringForType_.assert_not_called()
+    assert "image is too large" in status.setStringValue_.call_args.args[0]
 
 
 def printed_grid() -> ImageArray:

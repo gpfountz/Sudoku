@@ -11,12 +11,14 @@ from typing import Any
 from unittest.mock import Mock
 
 import AppKit as AK
+import cv2
 import pytest
-from Foundation import NSURL, NSData, NSDate, NSRunLoop
+import Quartz as Q
+from Foundation import NSURL, NSData, NSDate, NSMutableData, NSRunLoop
 
 from sudoku.catalog import Catalog
-from sudoku.import_images import Corners, GridRegion, decode_image, image_bytes
-from sudoku.import_ui import ImportWindow, display_image
+from sudoku.import_images import Corners, image_bytes
+from sudoku.import_ui import ImportWindow
 from sudoku.model import LEVELS
 from sudoku.puzzle_import import ValidatedImport, validate_import
 from sudoku.storage import Store
@@ -213,22 +215,22 @@ def test_image_clipboard_precedes_text_and_is_discarded(
     review: Any,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Prefer clipboard image data and retain no image after cancellation."""
+    """Decode clipboard JPEG data ahead of text and discard the image when cancelled."""
     import numpy as np
 
     image: Any = np.full((100, 100, 3), 255, dtype=np.uint8)
-    native: Any = display_image(image)
-    pasteboard: Any = Mock()
-    pasteboard.dataForType_.return_value = None
-    pasteboard.readObjectsForClasses_options_.return_value = [native]
-    pasteboard.stringForType_.return_value = "unsupported"
+    success: bool
+    encoded: Any
+    success, encoded = cv2.imencode(".jpg", image)
+    assert success
+    data: bytes = encoded.tobytes()
+    pasteboard: Any = AK.NSPasteboard.pasteboardWithUniqueName()
+    pasteboard.setData_forType_(NSData.dataWithBytes_length_(data, len(data)), "public.jpeg")
+    pasteboard.setString_forType_("unsupported text", AK.NSPasteboardTypeString)
     monkeypatch.setattr(AK, "NSPasteboard", Mock(generalPasteboard=Mock(return_value=pasteboard)))
-    review.load_image = Mock()
     review.readClipboard_(None)
-    review.load_image.assert_called_once()
-    pasteboard.stringForType_.assert_not_called()
-    review.image = decode_image(image_bytes(image))
-    review.corners = GridRegion(((0, 0), (99, 0), (99, 99), (0, 99))).corners
+    finish_jobs(review)
+    assert review.image is not None and review.image.shape == image.shape
     review.cancel_(None)
     assert review.image is None
     assert review.board_image is None
@@ -249,7 +251,9 @@ def test_clipboard_and_file_pass_identical_image_bytes(
     monkeypatch.setattr(AK, "NSPasteboard", Mock(generalPasteboard=Mock(return_value=pasteboard)))
     review.load_image = Mock()
     review.readClipboard_(None)
-    review.load_image.assert_called_once_with(data)
+    review.load_image.assert_called_once()
+    clipboard_data: NSData = review.load_image.call_args.args[0]
+    assert isinstance(clipboard_data, NSData) and bytes(clipboard_data) == data
     review.load_image.reset_mock()
     path: Path = tmp_path / "puzzle.png"
     path.write_bytes(data)
@@ -259,6 +263,42 @@ def test_clipboard_and_file_pass_identical_image_bytes(
     monkeypatch.setattr(AK, "NSOpenPanel", Mock(openPanel=Mock(return_value=panel)))
     review.chooseFile_(None)
     review.load_image.assert_called_once_with(data)
+
+
+@pytest.mark.parametrize("image_type", ["com.adobe.pdf", "public.svg-image"])
+def test_clipboard_vectors_render_into_a_bounded_bitmap(
+    review: Any, monkeypatch: pytest.MonkeyPatch, image_type: str
+) -> None:
+    """Rasterize oversized vector dimensions on the worker while preserving orientation."""
+    monkeypatch.setattr("sudoku.import_images.MAX_IMAGE_DIMENSION", 64)
+    data: NSData
+    if image_type == "public.svg-image":
+        svg: bytes = (
+            b'<svg xmlns="http://www.w3.org/2000/svg" width="8000" height="4000">'
+            b'<rect width="8000" height="2000" fill="red"/>'
+            b'<rect y="2000" width="8000" height="2000" fill="blue"/></svg>'
+        )
+        data = NSData.dataWithBytes_length_(svg, len(svg))
+    else:
+        pdf: NSMutableData = NSMutableData.data()
+        consumer: Any = Q.CGDataConsumerCreateWithCFData(pdf)
+        context: Any = Q.CGPDFContextCreate(consumer, Q.CGRectMake(0, 0, 8000, 4000), None)
+        Q.CGPDFContextBeginPage(context, None)
+        Q.CGContextSetRGBFillColor(context, 1, 0, 0, 1)
+        Q.CGContextFillRect(context, Q.CGRectMake(0, 2000, 8000, 2000))
+        Q.CGContextSetRGBFillColor(context, 0, 0, 1, 1)
+        Q.CGContextFillRect(context, Q.CGRectMake(0, 0, 8000, 2000))
+        Q.CGPDFContextEndPage(context)
+        Q.CGPDFContextClose(context)
+        data = pdf.copy()
+
+    pasteboard: Any = AK.NSPasteboard.pasteboardWithUniqueName()
+    pasteboard.setData_forType_(data, image_type)
+    monkeypatch.setattr(AK, "NSPasteboard", Mock(generalPasteboard=Mock(return_value=pasteboard)))
+    review.readClipboard_(None)
+    finish_jobs(review)
+    assert review.image is not None and review.image.shape == (32, 64, 3)
+    assert review.image[0, 0, 0] > 200 and review.image[-1, 0, 2] > 200
 
 
 @pytest.mark.parametrize("entry", ["clipboard", "file"])

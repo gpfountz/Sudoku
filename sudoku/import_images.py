@@ -4,12 +4,14 @@
 
 """Locate Sudoku grids and recognize printed clues locally with OpenCV and Vision."""
 
+import math
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import AppKit as AK
 import cv2
 import numpy as np
 import Quartz as Q
@@ -23,6 +25,8 @@ ImageArray = NDArray[Any]
 Corners = tuple[tuple[float, float], ...]
 BOARD_SIZE: int = 900
 MAX_IMAGE_BYTES: int = 128 * 1024 * 1024
+MAX_IMAGE_DIMENSION: int = 4096
+VECTOR_IMAGE_TYPES: tuple[str, ...] = ("com.adobe.pdf", "public.svg-image")
 MINIMUM_OCR_CONFIDENCE: float = 0.85
 IMAGE_SIZE_ERROR: str = "This image is too large. Choose a smaller image or screenshot."
 
@@ -47,19 +51,32 @@ class RecognizedGrid:
 def read_image_file(path: Path) -> bytes:
     """Reject oversized files before allocation and bound reads if the file grows."""
     with path.open("rb") as source:
-        if os.fstat(source.fileno()).st_size > MAX_IMAGE_BYTES:
-            raise ValueError(IMAGE_SIZE_ERROR)
+        check_image_size(os.fstat(source.fileno()).st_size)
         data: bytes = source.read(MAX_IMAGE_BYTES + 1)
-    if len(data) > MAX_IMAGE_BYTES:
-        raise ValueError(IMAGE_SIZE_ERROR)
+    check_image_size(len(data))
     return data
 
 
-def native_image(data: bytes) -> Any:
-    """Decode an oriented native image, bounding its dimensions before pixel allocation."""
-    if len(data) > MAX_IMAGE_BYTES:
+def check_image_size(size: int) -> None:
+    """Reject encoded images that exceed the import byte limit."""
+    if size > MAX_IMAGE_BYTES:
         raise ValueError(IMAGE_SIZE_ERROR)
-    source: Any = Q.CGImageSourceCreateWithData(NSData.dataWithBytes_length_(data, len(data)), None)
+
+
+def _checked_image_data(data: bytes | NSData) -> NSData:
+    """Pass clipboard data through and wrap file bytes after checking their length."""
+    check_image_size(len(data))
+    return NSData.dataWithBytes_length_(data, len(data)) if isinstance(data, bytes) else data
+
+
+def native_image(data: bytes | NSData) -> Any:
+    """Decode an oriented native image, bounding its dimensions before pixel allocation."""
+    source: Any = Q.CGImageSourceCreateWithData(_checked_image_data(data), None)
+    return _thumbnail(source)
+
+
+def _thumbnail(source: Any) -> Any:
+    """Read the first oriented raster representation into a bounded thumbnail."""
     if source is None:
         raise ValueError("Choose a supported image: PNG, JPEG, HEIC, or TIFF.")
     image: Any = Q.CGImageSourceCreateThumbnailAtIndex(
@@ -68,7 +85,7 @@ def native_image(data: bytes) -> Any:
         {
             Q.kCGImageSourceCreateThumbnailFromImageAlways: True,
             Q.kCGImageSourceCreateThumbnailWithTransform: True,
-            Q.kCGImageSourceThumbnailMaxPixelSize: 4096,
+            Q.kCGImageSourceThumbnailMaxPixelSize: MAX_IMAGE_DIMENSION,
         },
     )
     if image is None:
@@ -76,11 +93,46 @@ def native_image(data: bytes) -> Any:
     return image
 
 
-def decode_image(data: bytes) -> ImageArray:
-    """Convert PNG, JPEG, HEIC, or TIFF data into an upright RGB pixel array."""
-    image: Any = native_image(data)
-    width: int = Q.CGImageGetWidth(image)
-    height: int = Q.CGImageGetHeight(image)
+def _vector_dimensions(image: Any) -> tuple[int, int]:
+    """Scale a vector image's dimensions into the same pixel budget as a raster image."""
+    size: Any = image.size()
+    width: float = size.width
+    height: float = size.height
+    if not (math.isfinite(width) and math.isfinite(height) and min(width, height) > 0):
+        raise ValueError("Could not decode this image.")
+    scale: float = min(1.0, MAX_IMAGE_DIMENSION / max(width, height))
+    return max(1, round(width * scale)), max(1, round(height * scale))
+
+
+def _draw_vector(image: Any, context: Any, width: int, height: int) -> None:
+    """Draw the vector in the worker's bounded bitmap without caching an intrinsic-size raster."""
+    graphics: Any = AK.NSGraphicsContext.graphicsContextWithCGContext_flipped_(context, False)
+    image.setCacheMode_(AK.NSImageCacheNever)
+    AK.NSGraphicsContext.saveGraphicsState()
+    try:
+        AK.NSGraphicsContext.setCurrentContext_(graphics)
+        image.drawInRect_(AK.NSMakeRect(0, 0, width, height))
+    finally:
+        AK.NSGraphicsContext.restoreGraphicsState()
+
+
+def decode_image(data: bytes | NSData, *, vector: bool = False) -> ImageArray:
+    """Decode a raster or draw a clipboard vector into a bounded upright RGB pixel array."""
+    encoded: NSData = _checked_image_data(data)
+    source: Any = Q.CGImageSourceCreateWithData(encoded, None)
+    draw_vector: bool = vector and (
+        source is None or Q.CGImageSourceGetType(source) in (None, *VECTOR_IMAGE_TYPES)
+    )
+    width: int
+    height: int
+    if draw_vector:
+        image: Any = AK.NSImage.alloc().initWithData_(encoded)
+        if image is None:
+            raise ValueError("Could not decode this image.")
+        width, height = _vector_dimensions(image)
+    else:
+        image = _thumbnail(source)
+        width, height = Q.CGImageGetWidth(image), Q.CGImageGetHeight(image)
     pixels: bytearray = bytearray(width * height * 4)
     context: Any = Q.CGBitmapContextCreate(
         pixels,
@@ -91,9 +143,14 @@ def decode_image(data: bytes) -> ImageArray:
         Q.CGColorSpaceCreateDeviceRGB(),
         Q.kCGImageAlphaPremultipliedLast,
     )
+    if context is None:
+        raise ValueError("Could not prepare the image pixels.")
     Q.CGContextSetRGBFillColor(context, 1, 1, 1, 1)
     Q.CGContextFillRect(context, Q.CGRectMake(0, 0, width, height))
-    Q.CGContextDrawImage(context, Q.CGRectMake(0, 0, width, height), image)
+    if draw_vector:
+        _draw_vector(image, context, width, height)
+    else:
+        Q.CGContextDrawImage(context, Q.CGRectMake(0, 0, width, height), image)
     return np.frombuffer(pixels, dtype=np.uint8).reshape(height, width, 4)[:, :, :3].copy()
 
 

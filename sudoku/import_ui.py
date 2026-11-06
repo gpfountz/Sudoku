@@ -12,6 +12,7 @@ from typing import Any
 
 import AppKit as AK
 import objc
+import Quartz as Q
 from Foundation import NSData, NSDictionary, NSString, NSTimer
 
 from sudoku.catalog import Catalog, load_catalog
@@ -23,10 +24,12 @@ from sudoku.controls import (
 )
 from sudoku.engine import conflicts
 from sudoku.import_images import (
+    VECTOR_IMAGE_TYPES,
     Corners,
     GridRegion,
     ImageArray,
     RecognizedGrid,
+    check_image_size,
     decode_image,
     detect_grids,
     image_bytes,
@@ -527,19 +530,26 @@ class ImportWindow(AK.NSObject):
     def readClipboard_(self, sender: Any) -> None:
         """Read the clipboard once, preferring image content over a supported text grid."""
         pasteboard: Any = AK.NSPasteboard.generalPasteboard()
-        for image_type in (AK.NSPasteboardTypePNG, AK.NSPasteboardTypeTIFF):
-            encoded: Any = pasteboard.dataForType_(image_type)
-            if encoded is not None:
-                self.load_image(bytes(encoded))
-                return
-        images: Any = pasteboard.readObjectsForClasses_options_(
-            [AK.NSImage], NSDictionary.dictionary()
+        offered: set[str] = set(pasteboard.types() or ())
+        preferred: tuple[str, ...] = (
+            AK.NSPasteboardTypePNG,
+            AK.NSPasteboardTypeTIFF,
+            *Q.CGImageSourceCopyTypeIdentifiers(),
+            *VECTOR_IMAGE_TYPES,
         )
-        if images:
-            data: Any = images[0].TIFFRepresentation()
-            if data is not None:
-                self.load_image(bytes(data))
+        for image_type in dict.fromkeys(preferred):
+            if image_type not in offered:
+                continue
+            encoded: NSData | None = pasteboard.dataForType_(image_type)
+            if encoded is None:
+                continue
+            try:
+                check_image_size(encoded.length())
+            except ValueError as error:
+                self.controls["status"].setStringValue_(str(error))
                 return
+            self.load_image(encoded, vector=image_type in VECTOR_IMAGE_TYPES)
+            return
         text: str = str(pasteboard.stringForType_(AK.NSPasteboardTypeString) or "")
         try:
             values: tuple[int, ...] = parse_grid(text)
@@ -578,14 +588,14 @@ class ImportWindow(AK.NSObject):
         self.load_image(data)
 
     @objc.python_method
-    def load_image(self, data: bytes) -> None:
+    def load_image(self, data: bytes | NSData, *, vector: bool = False) -> None:
         """Decode and locate boards in the background before proposing any clues."""
         self.invalidate_review()
         self.reset_difficulty()
 
         def locate(cancelled: Event) -> tuple[ImageArray, tuple[GridRegion, ...]]:
             """Decode the selected source and verify candidate grids."""
-            image: ImageArray = decode_image(data)
+            image: ImageArray = decode_image(data, vector=vector)
             return image, detect_grids(image)
 
         self.run_job(locate, self.image_loaded)
