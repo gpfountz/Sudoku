@@ -403,11 +403,12 @@ class PlayerStore:
         timestamp: str = now()
         with self.transaction(game.puzzle.level) as connection:
             if "replay_id" in active:
+                # Older restarts changed the saved attempt ID while retaining the row key.
                 cursor: sqlite3.Cursor = connection.execute(
                     "UPDATE replays SET state=?,status=?,last_played_at=?,"
                     "completed_at=CASE WHEN ? AND status!='completed' "
                     "THEN coalesce(completed_at,?) ELSE completed_at END "
-                    "WHERE attempt_id=? AND id=?",
+                    "WHERE attempt_id=? AND id=? AND json_extract(state, '$.attempt_id')=?",
                     (
                         payload,
                         "completed" if game.complete else "started",
@@ -416,25 +417,25 @@ class PlayerStore:
                         timestamp,
                         active["replay_id"],
                         game.puzzle.identifier,
+                        game.attempt_id,
                     ),
                 )
-                if cursor.rowcount != 1:
-                    raise SaveError("Active replay record is missing")
-                return
-            cursor = connection.execute(
-                "UPDATE games SET state=?,status=?,last_played_at=?,"
-                "completed_at=CASE WHEN ? AND status!='completed' "
-                "THEN coalesce(completed_at,?) ELSE completed_at END "
-                "WHERE id=? AND cycle=?",
-                (
-                    payload,
-                    "completed" if game.complete else "started",
-                    timestamp,
-                    game.complete,
-                    timestamp,
-                    game.puzzle.identifier,
-                    active["cycle"],
-                ),
-            )
+            else:
+                cursor = connection.execute(
+                    "UPDATE games SET state=?,status=?,last_played_at=?,"
+                    "completed_at=CASE WHEN ? AND status!='completed' "
+                    "THEN coalesce(completed_at,?) ELSE completed_at END "
+                    "WHERE id=? AND cycle=? AND json_extract(state, '$.attempt_id')=?",
+                    (
+                        payload,
+                        "completed" if game.complete else "started",
+                        timestamp,
+                        game.complete,
+                        timestamp,
+                        game.puzzle.identifier,
+                        active["cycle"],
+                        game.attempt_id,
+                    ),
+                )
             if cursor.rowcount != 1:
-                raise SaveError("Active regular-game record is missing")
+                raise SaveError("This regular attempt is no longer active")

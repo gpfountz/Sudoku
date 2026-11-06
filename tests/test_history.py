@@ -20,7 +20,7 @@ from sudoku.celebration import celebration_level
 from sudoku.hint_types import Hint
 from sudoku.history import SCHEMA, HistoryStore, hint_stage_key
 from sudoku.model import LEVELS, Game, Preferences
-from sudoku.storage import Store, game_data, game_from_data
+from sudoku.storage import SaveError, Store, game_data, game_from_data
 
 
 def test_completion_awards_and_saves_rank_once(game: Game) -> None:
@@ -254,3 +254,58 @@ def test_existing_player_database_adds_replay_table(tmp_path: Path) -> None:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
         assert connection.execute("SELECT count(*) FROM games").fetchone()[0] == 1
         assert connection.execute("SELECT count(*) FROM replays").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("active_replay", [True, False])
+def test_stale_attempt_cannot_overwrite_active_board(
+    tmp_path: Path, isolated_catalog: Catalog, active_replay: bool
+) -> None:
+    """Reject a stale save even when both attempts use the same catalog puzzle."""
+    first: Store = Store(tmp_path)
+    first.load_game(isolated_catalog)
+    original: Game = first.start_game("Easy")
+    stale: Game = first.start_replay(original.puzzle.identifier)
+    second: Store = Store(tmp_path)
+    assert second.load_game(isolated_catalog) is not None
+    if active_replay:
+        active: Game = second.start_replay(original.puzzle.identifier)
+    else:
+        assert second.players is not None
+        second.players.write_index("Easy", original.puzzle.identifier, 1)
+        active = original
+    empty: int = active.values.index(0)
+    active.set_value(empty, active.puzzle.solution[empty])
+    second.save_game(active)
+
+    with pytest.raises(SaveError, match="no longer active"):
+        first.save_game(stale)
+
+    restored: Game | None = Store(tmp_path).load_game(isolated_catalog)
+    assert restored is not None
+    assert restored.attempt_id == active.attempt_id
+    assert restored.values == active.values
+
+
+def test_save_replay_restarted_by_older_version(tmp_path: Path, isolated_catalog: Catalog) -> None:
+    """Accept the saved attempt ID when an older restart reused the replay row key."""
+    store: Store = Store(tmp_path)
+    store.load_game(isolated_catalog)
+    replay: Game = store.start_replay(isolated_catalog["Easy"][0].identifier)
+    restarted: Game = Game(replay.puzzle)
+    assert store.players is not None
+    with store.players.transaction("Easy") as connection:
+        connection.execute(
+            "UPDATE replays SET state=? WHERE attempt_id=?",
+            (json.dumps(game_data(restarted)), replay.attempt_id),
+        )
+
+    restored: Game | None = store.load_game(isolated_catalog)
+    assert restored is not None
+    assert restored.attempt_id == restarted.attempt_id
+    restored.elapsed = 15
+    store.save_game(restored)
+    with pytest.raises(SaveError, match="no longer active"):
+        store.save_game(replay)
+    reopened: Game | None = Store(tmp_path).load_game(isolated_catalog)
+    assert reopened is not None
+    assert reopened.attempt_id == restarted.attempt_id and reopened.elapsed == 15

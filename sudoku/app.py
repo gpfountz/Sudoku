@@ -67,7 +67,7 @@ class AppController(NSObject):
     daily_games: dict[str, Game]
     active_daily_date: str | None
     current_day: str
-    window: Any
+    window: Any = None
     adaptive_layout: AdaptiveLayout | None = None
     board: Any
     controls: dict[str, Any]
@@ -93,8 +93,6 @@ class AppController(NSObject):
 
     def applicationDidFinishLaunching_(self, notification: Any) -> None:
         """Load local state, construct the native window, and start the event loop timer."""
-        directory: str | None = os.environ.get("SUDOKU_DATA_DIR")
-        self.store = Store(Path(directory) if directory else None)
         self.history = HistoryStore(self.store.directory / "history.sqlite3")
         self.history_window = None
         self.statistics_window = None
@@ -985,6 +983,8 @@ class AppController(NSObject):
     @objc.python_method
     def apply_alert_theme(self, alert: Any) -> None:
         """Theme modal surfaces, primary buttons, and focus while retaining native actions."""
+        if self.window is None:
+            return
         alert.window().setAppearance_(self.window.appearance())
         alert.window().setBackgroundColor_(
             self.theme.window_background or AK.NSColor.windowBackgroundColor()
@@ -1326,7 +1326,7 @@ class AppController(NSObject):
             )
             == 1
         ):
-            if is_imported(self.game.puzzle.identifier):
+            if self.active_daily_date is None:
                 self.save()
                 try:
                     if self.save_problem:
@@ -1347,6 +1347,7 @@ class AppController(NSObject):
                 self.regular_game = self.game
                 self.last_tick = time.monotonic()
                 self.changed()
+                self.window.makeFirstResponder_(self.board)
                 return
             if not self.game.complete:
                 try:
@@ -1796,12 +1797,20 @@ class AppController(NSObject):
 
 
 def main() -> None:
-    """Launch the native Cocoa application and retain its controller."""
+    """Launch the native Cocoa application with exclusive access to its saves."""
     app: Any = AK.NSApplication.sharedApplication()
     app.setActivationPolicy_(AK.NSApplicationActivationPolicyRegular)
     controller: Any = AppController.alloc().init()
-    app.setDelegate_(controller)
-    AppHelper.runEventLoop()
+    directory: str | None = os.environ.get("SUDOKU_DATA_DIR")
+    store: Store = Store(Path(directory) if directory else None)
+    controller.store = store
+    try:
+        with store.writer_session():
+            app.setDelegate_(controller)
+            AppHelper.runEventLoop()
+    except SaveError as error:
+        app.activateIgnoringOtherApps_(True)
+        controller.alert("Cannot open Sudoku saves", str(error))
 
 
 if __name__ == "__main__":

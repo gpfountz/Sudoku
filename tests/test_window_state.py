@@ -11,9 +11,33 @@ from unittest.mock import Mock
 import AppKit as AK
 import pytest
 
-from sudoku.app import AppController
+from sudoku.app import AppController, main
 from sudoku.model import Preferences
 from sudoku.storage import Store
+
+
+def test_launch_rejects_a_busy_save_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Show a startup error before the delegate can read or write shared saves."""
+    app: Mock = Mock()
+    controller: Mock = Mock()
+    run_loop: Mock = Mock()
+    application_class: Mock = Mock()
+    application_class.sharedApplication.return_value = app
+    controller_class: Mock = Mock()
+    controller_class.alloc.return_value.init.return_value = controller
+    monkeypatch.setenv("SUDOKU_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("sudoku.app.AK.NSApplication", application_class)
+    monkeypatch.setattr("sudoku.app.AppController", controller_class)
+    monkeypatch.setattr("sudoku.app.AppHelper.runEventLoop", run_loop)
+
+    with Store(tmp_path).writer_session():
+        main()
+
+    app.setDelegate_.assert_not_called()
+    run_loop.assert_not_called()
+    assert "Another Sudoku session" in controller.alert.call_args.args[1]
 
 
 @pytest.fixture

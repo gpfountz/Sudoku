@@ -6,6 +6,8 @@
 
 import json
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -348,11 +350,34 @@ def test_verified_eliminations_survive_migration(tmp_path: Path) -> None:
     assert restored.undo_stack == game.undo_stack
 
 
+def test_writer_session_is_exclusive_per_save_directory(tmp_path: Path) -> None:
+    """Reject another process on this directory and allow independent or later sessions."""
+    script: str = """
+import sys
+from pathlib import Path
+from sudoku.storage import SaveError, Store
+
+try:
+    with Store(Path(sys.argv[1])).writer_session():
+        pass
+except SaveError as error:
+    sys.exit(str(error))
+"""
+    command: list[str] = [sys.executable, "-c", script]
+    shared: Path = tmp_path / "shared"
+    with Store(shared).writer_session():
+        competing: subprocess.CompletedProcess[str] = subprocess.run(
+            [*command, str(shared)], capture_output=True, text=True, timeout=5, check=False
+        )
+        assert competing.returncode == 1
+        assert "Another Sudoku session" in competing.stderr
+        subprocess.run([*command, str(tmp_path / "separate")], timeout=5, check=True)
+    subprocess.run([*command, str(shared)], timeout=5, check=True)
+
+
 def test_resume_across_process_restarts(tmp_path: Path) -> None:
     """A second process using the same data directory restores edits and selected cell."""
     import os
-    import subprocess
-    import sys
 
     script: str = """
 import json

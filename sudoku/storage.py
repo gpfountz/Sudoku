@@ -4,14 +4,17 @@
 
 """Versioned atomic local persistence with recovery and strict save validation."""
 
+import fcntl
 import json
 import math
 import os
 import shutil
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from dataclasses import asdict
 from datetime import date, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TextIO
 
 from sudoku.model import COMPLETION_RANKS, Game, Preferences, Puzzle, Snapshot
 
@@ -189,6 +192,24 @@ class Store:
         self.players: PlayerStore | None = None
         self._imported: ImportedStore | None = None
 
+    @contextmanager
+    def writer_session(self) -> Iterator[None]:
+        """Hold the persistent lock file open for the lifetime of the app session."""
+        with ExitStack() as stack:
+            try:
+                self.directory.mkdir(parents=True, exist_ok=True)
+                path: Path = self.directory / ".sudoku-writer.lock"
+                lock: TextIO = stack.enter_context(path.open("a"))
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as error:
+                raise SaveError(
+                    "Another Sudoku session is using this save directory. "
+                    "Close that session before opening these saves."
+                ) from error
+            except OSError as error:
+                raise SaveError(f"Could not lock the Sudoku save directory: {error}") from error
+            yield
+
     @property
     def imported(self) -> ImportedStore:
         """Open the imported backend lazily, avoiding module initialization cycles."""
@@ -270,13 +291,15 @@ class Store:
         from sudoku.imported import is_imported
 
         if is_imported(game.puzzle.identifier):
-            self.imported.save(game)
             index: dict[str, Any] = self.players.read_index() or {}
             active: dict[str, Any] = index.get("active") or {}
             if (
-                active.get("replay_id") != game.attempt_id
-                or active.get("level") != game.puzzle.level
+                active.get("id") != game.puzzle.identifier
+                or active.get("replay_id") != game.attempt_id
             ):
+                raise SaveError("This imported attempt is no longer active")
+            self.imported.save(game)
+            if active.get("level") != game.puzzle.level:
                 self.players.write_replay_index(game)
         else:
             self.players.save_game(game)

@@ -201,9 +201,13 @@ def test_daily_game_ends_import(controller: Any) -> None:
     )
 
 
-def test_restart_import_has_new_persisted_attempt(controller: Any) -> None:
+@pytest.mark.parametrize("source", ["imported", "regular", "catalog_replay"])
+def test_restart_has_new_persisted_attempt(controller: Any, source: str) -> None:
     """Keep immutable clues and ID while recording Restarted and publishing a fresh attempt."""
-    assert controller.play_import(import_puzzle(controller), "Hard")
+    if source == "imported":
+        assert controller.play_import(import_puzzle(controller), "Hard")
+    elif source == "catalog_replay":
+        controller.replay_puzzle(controller.game.puzzle.identifier)
     previous: Game = controller.game
     controller.alert.return_value = 1
     controller.restart_(None)
@@ -213,7 +217,12 @@ def test_restart_import_has_new_persisted_attempt(controller: Any) -> None:
         record.attempt_id == previous.attempt_id and record.status == "Restarted"
         for record in controller.history.page(0)
     )
-    assert controller.store.load_game(controller.catalog).attempt_id == controller.game.attempt_id
+    with pytest.raises(SaveError, match="no longer active"):
+        controller.store.save_game(previous)
+    controller.game.elapsed = 15
+    controller.store.save_game(controller.game)
+    restored: Game = controller.store.load_game(controller.catalog)
+    assert restored.attempt_id == controller.game.attempt_id and restored.elapsed == 15
 
 
 def test_abandoned_daily_reopens_as_a_new_attempt(controller: Any) -> None:
