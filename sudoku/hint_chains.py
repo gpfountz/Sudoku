@@ -11,6 +11,8 @@ from sudoku.engine import DIGITS, PEERS, UNITS, cell_name
 from sudoku.hint_types import Hint, HintLink, removal_hint
 from sudoku.hint_types import HintNode as Node
 
+MAX_INFERENCE_LINKS: int = 32
+
 
 def inference_graph(
     options: list[set[int]],
@@ -56,7 +58,9 @@ def inference_graph(
     return ordered, [sorted(neighbors) for neighbors in edges]
 
 
-def contradiction_path(edges: list[list[int]], start: int, max_links: int = 32) -> list[int]:
+def contradiction_path(
+    edges: list[list[int]], start: int, max_links: int = MAX_INFERENCE_LINKS
+) -> list[int]:
     """Find the shortest alternating path to the opposite literal, with a depth bound."""
     queue: deque[int] = deque([start])
     parents: dict[int, int] = {start: -1}
@@ -80,7 +84,9 @@ def contradiction_path(edges: list[list[int]], start: int, max_links: int = 32) 
     return []
 
 
-def inference_chain_hints(options: list[set[int]], grouped: bool = False) -> Iterator[Hint]:
+def inference_chain_hints(
+    options: list[set[int]], grouped: bool = False, *, max_links: int = MAX_INFERENCE_LINKS
+) -> Iterator[Hint]:
     """Find AIC and nice-loop consequences as explainable opposite-literal paths."""
     nodes, edges = inference_graph(options, grouped)
     deductions: list[tuple[list[int], int, bool]] = []
@@ -88,7 +94,7 @@ def inference_chain_hints(options: list[set[int]], grouped: bool = False) -> Ite
         if len(node.cells) != 1:
             continue
         for assumed in (True, False):
-            path: list[int] = contradiction_path(edges, index * 2 + int(assumed))
+            path: list[int] = contradiction_path(edges, index * 2 + int(assumed), max_links)
             if path:
                 # Grouped searches add only proofs that actually use a group.
                 uses_group: bool = any(len(nodes[literal // 2].cells) > 1 for literal in path)

@@ -9,6 +9,7 @@ import random
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,16 @@ CREATE TABLE IF NOT EXISTS swaps(position INTEGER PRIMARY KEY,ordinal INTEGER NO
 def now() -> str:
     """Return a UTC timestamp only for events actually observed by the app."""
     return datetime.now(UTC).isoformat()
+
+
+@dataclass(frozen=True)
+class PuzzleChoice:
+    """A candidate from a specific position in a snapshot of the unplayed rotation."""
+
+    cycle: int
+    remaining: int
+    position: int
+    puzzle: Puzzle
 
 
 class PlayerStore:
@@ -231,16 +242,18 @@ class PlayerStore:
                 connection.execute("DELETE FROM swaps")
 
     @staticmethod
-    def remove_position(connection: sqlite3.Connection, position: int, remaining: int) -> int:
-        """Pop a sparse Fisher-Yates position in indexed constant-size database work."""
-        row: Any = connection.execute(
+    def ordinal_at(connection: sqlite3.Connection, position: int) -> int:
+        """Resolve a rotation position, using the ordinal itself for an unswapped slot."""
+        row: tuple[int] | None = connection.execute(
             "SELECT ordinal FROM swaps WHERE position=?", (position,)
         ).fetchone()
-        ordinal: int = int(row[0]) if row else position
-        last: Any = connection.execute(
-            "SELECT ordinal FROM swaps WHERE position=?", (remaining,)
-        ).fetchone()
-        last_ordinal: int = int(last[0]) if last else remaining
+        return int(row[0]) if row else position
+
+    @staticmethod
+    def remove_position(connection: sqlite3.Connection, position: int, remaining: int) -> int:
+        """Pop a sparse Fisher-Yates position in indexed constant-size database work."""
+        ordinal: int = PlayerStore.ordinal_at(connection, position)
+        last_ordinal: int = PlayerStore.ordinal_at(connection, remaining)
         connection.execute("DELETE FROM swaps WHERE position IN (?,?)", (position, remaining))
         if position != remaining and last_ordinal != position:
             connection.execute("INSERT INTO swaps VALUES (?,?)", (position, last_ordinal))
@@ -276,9 +289,28 @@ class PlayerStore:
             remaining -= 1
         return cycle, remaining
 
-    def start_game(self, level: str) -> Game:
+    def sample_games(self, level: str, limit: int) -> tuple[PuzzleChoice, ...]:
+        """Sample unplayed candidates without consuming any rotation slots."""
+        group: DifficultyCatalog = self.catalog[level]
+        with self.transaction(level) as connection:
+            cycle, remaining = self.rotation(connection, level)
+            pool_size: int = remaining or len(group)
+            positions: list[int] = random.SystemRandom().sample(
+                range(1, pool_size + 1), min(limit, pool_size)
+            )
+            ordinals: list[int] = (
+                [self.ordinal_at(connection, position) for position in positions]
+                if remaining
+                else positions
+            )
+            return tuple(
+                PuzzleChoice(cycle, remaining, position, group.by_ordinal(ordinal))
+                for position, ordinal in zip(positions, ordinals, strict=True)
+            )
+
+    def start_game(self, level: str, *, choice: PuzzleChoice | None = None) -> Game:
         """Select and save one unplayed puzzle atomically, retaining every earlier attempt."""
-        return self.select_game(level, regular=True)
+        return self.select_game(level, regular=True, choice=choice)
 
     def remaining_games(self, level: str) -> int:
         """Count unused slots in the current rotation without selecting another puzzle."""
@@ -286,18 +318,32 @@ class PlayerStore:
             _, remaining = self.rotation(connection, level)
             return remaining
 
-    def select_game(self, level: str, *, regular: bool = False) -> Game:
+    def select_game(
+        self, level: str, *, regular: bool = False, choice: PuzzleChoice | None = None
+    ) -> Game:
         """Use the shared unplayed rotation for a regular or daily game."""
         with self.transaction(level) as connection:
             cycle, remaining = self.rotation(connection, level)
+            stale_choice: str = "Puzzle availability changed. Start a new puzzle again."
+            if choice is not None and (cycle, remaining) != (choice.cycle, choice.remaining):
+                raise SaveError(stale_choice)
             if remaining == 0:
                 cycle += 1
                 remaining = len(self.catalog[level])
                 connection.execute("DELETE FROM swaps")
                 connection.execute("UPDATE rotation SET cycle=?,remaining=?", (cycle, remaining))
-            position: int = random.SystemRandom().randint(1, remaining)
+            position: int = (
+                choice.position
+                if choice is not None
+                else random.SystemRandom().randint(1, remaining)
+            )
+            if not 1 <= position <= remaining:
+                raise SaveError(stale_choice)
             ordinal: int = self.remove_position(connection, position, remaining)
-            game: Game = Game(self.catalog[level].by_ordinal(ordinal))
+            puzzle: Puzzle = self.catalog[level].by_ordinal(ordinal)
+            if choice is not None and puzzle != choice.puzzle:
+                raise SaveError(stale_choice)
+            game: Game = Game(puzzle)
             timestamp: str = now()
             connection.execute(
                 "INSERT INTO games VALUES (?,?,'started',?,?,NULL,?)",

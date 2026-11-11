@@ -16,7 +16,7 @@ import pytest
 
 from sudoku.catalog import Catalog, load_catalog, read_database
 from sudoku.model import LEVELS, Game, Preferences, Puzzle
-from sudoku.player import PlayerStore
+from sudoku.player import PlayerStore, PuzzleChoice
 from sudoku.storage import SaveError, Store, game_data, game_from_data
 
 
@@ -85,7 +85,11 @@ def test_save_roundtrip_includes_history_and_preferences(tmp_path: Path) -> None
     game.note_mode = True
     game.paused = True
     prefs: Preferences = Preferences(
-        appearance="Dark", theme="Warm Paper", cleanup_notes=False, window_full_screen=True
+        appearance="Dark",
+        theme="Warm Paper",
+        cleanup_notes=False,
+        window_full_screen=True,
+        avoid_long_chains=True,
     )
     store.save_preferences(prefs)
     store.save_game(game)
@@ -97,6 +101,31 @@ def test_save_roundtrip_includes_history_and_preferences(tmp_path: Path) -> None
     assert restored.colors[empty] == 6
     assert restored.paused and store.load_preferences() == prefs
     assert not (tmp_path / "game.json").exists()
+
+
+def test_filtered_selection_consumes_only_its_chosen_puzzle(
+    tmp_path: Path, isolated_catalog: Catalog
+) -> None:
+    """Preserve skipped choices and refuse to commit a choice from a changed rotation."""
+    store: Store = Store(tmp_path)
+    assert store.load_game(isolated_catalog) is None
+    assert not store.load_preferences().avoid_long_chains
+    assert store.players is not None
+    level: str = "Expert"
+    size: int = len(isolated_catalog[level])
+    choices: tuple[PuzzleChoice, ...] = store.sample_games(level, size)
+    assert len({choice.puzzle for choice in choices}) == size
+    assert store.players.remaining_games(level) == size
+    chosen: Game = store.start_game(level, choice=choices[-1])
+    assert chosen.puzzle == choices[-1].puzzle
+    with pytest.raises(SaveError, match="availability changed"):
+        store.start_game(level, choice=choices[0])
+    upcoming: set[Puzzle] = {store.start_game(level).puzzle for _ in range(size - 1)}
+    assert upcoming == {choice.puzzle for choice in choices[:-1]}
+    new_cycle: PuzzleChoice = store.sample_games(level, 1)[0]
+    assert store.players.remaining_games(level) == 0
+    assert store.start_game(level, choice=new_cycle).puzzle == new_cycle.puzzle
+    assert store.players.remaining_games(level) == size - 1
 
 
 def test_old_save_without_colors_loads_and_invalid_colors_are_rejected(game: Game) -> None:

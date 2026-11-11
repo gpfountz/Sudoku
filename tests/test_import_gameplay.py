@@ -17,6 +17,7 @@ from sudoku.app import AppController
 from sudoku.catalog import Catalog
 from sudoku.history import HistoryStore
 from sudoku.model import LEVELS, Game, Preferences, Puzzle
+from sudoku.player import PuzzleChoice
 from sudoku.puzzle_import import ValidatedImport, validate_import
 from sudoku.storage import SaveError, Store, game_data, game_from_data
 
@@ -173,15 +174,38 @@ def test_imported_history_replay_starts_fresh_attempt(controller: Any) -> None:
     assert controller.history.count() == 2
 
 
-def test_new_regular_game_ends_import(controller: Any) -> None:
-    """Abandon an unfinished import when New Game starts a catalog puzzle."""
+@pytest.mark.parametrize("screening", ["off", "match", "cancel", "no match"])
+def test_new_regular_game_ends_import_on_success(controller: Any, screening: str) -> None:
+    """Keep the current attempt until a new game starts, including when screening is enabled."""
     assert controller.play_import(import_puzzle(controller), "Hard")
     previous: Game = controller.game
     dialog: Any = Mock()
     dialog.runModal.return_value = AK.NSAlertFirstButtonReturn
     dialog.accessoryView.return_value.titleOfSelectedItem.return_value = "Medium"
     controller.build_new_game_dialog = Mock(return_value=dialog)
+    controller.preferences.avoid_long_chains = screening != "off"
+    choice: PuzzleChoice = controller.store.sample_games("Medium", 1)[0]
+    no_match: SaveError = SaveError("No matching Medium puzzle")
+    controller.find_short_chain_game = Mock(
+        return_value=choice if screening == "match" else None,
+        side_effect=no_match if screening == "no match" else None,
+    )
     controller.newGame_(None)
+    if screening == "off":
+        controller.find_short_chain_game.assert_not_called()
+    else:
+        controller.find_short_chain_game.assert_called_once_with("Medium")
+    if screening in ("cancel", "no match"):
+        assert controller.game is previous is controller.regular_game
+        assert not controller.history.has_outcome(previous.attempt_id)
+        if screening == "no match":
+            controller.alert.assert_called_once_with("Cannot start a puzzle", str(no_match))
+        else:
+            controller.alert.assert_not_called()
+        controller.window.makeFirstResponder_.assert_called_with(controller.board)
+        return
+    if screening == "match":
+        assert controller.game.puzzle == choice.puzzle
     assert not controller.game.puzzle.identifier.startswith("IMP-")
     assert any(
         record.attempt_id == previous.attempt_id and record.status == "Abandoned"

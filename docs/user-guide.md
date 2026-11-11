@@ -244,6 +244,11 @@ Turn on **Play game sounds** to hear a completion chime and an incorrect-answer 
 follows **Show errors**, so it sounds for duplicate digits in Rule Conflicts mode, or for incorrect
 answers in Against Solution mode. With error checking off, gameplay gives no incorrect-answer cue.
 
+Turn on **Avoid long chains** to screen puzzles started through **New Sudoku**. The app looks for
+a complete logical solve at the difficulty you choose, with at most five links per AIC, grouped
+AIC, or XY-Chain. Short patterns like Two-String Kites still count as available techniques.
+If a search finds no match, try again, choose another difficulty, or turn the switch off.
+
 ### Themes and board cues
 
 Choose **Default**, **Warm Paper**, **Sage Linen**, **Coastal Mist**, **Lavender Slate**,

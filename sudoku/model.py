@@ -42,6 +42,7 @@ class Preferences:
     cleanup_notes: bool = True
     show_timer: bool = True
     game_sounds: bool = False
+    avoid_long_chains: bool = False
     daily_enabled: bool = False
     daily_minimum: str = "Easy"
     daily_maximum: str = "Extreme"
@@ -73,6 +74,7 @@ class Preferences:
             "cleanup_notes",
             "show_timer",
             "game_sounds",
+            "avoid_long_chains",
             "daily_enabled",
         ):
             if type(data.get(name)) is bool:

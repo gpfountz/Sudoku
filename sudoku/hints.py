@@ -10,7 +10,7 @@ from dataclasses import dataclass, replace
 from itertools import chain, combinations
 
 from sudoku.engine import BOXES, COLUMNS, DIGITS, PEERS, ROWS, UNITS, candidates, cell_name
-from sudoku.hint_chains import inference_chain_hints
+from sudoku.hint_chains import MAX_INFERENCE_LINKS, inference_chain_hints
 from sudoku.hint_fish import complex_fish_hints, finned_complex_fish_hints, finned_fish_hints
 from sudoku.hint_types import Hint, HintLink, candidate_link, removal_hint, unit_name
 from sudoku.hint_uniqueness import uniqueness_hints
@@ -512,6 +512,8 @@ def xy_chain_hints(
     options: list[set[int]], max_cells: int = 24, min_cells: int = 4
 ) -> Iterator[Hint]:
     """Search shortest bivalue paths first, up to 24 cells and 60,000 visited states."""
+    if max_cells < min_cells:
+        return
     bivalue: set[int] = {index for index, available in enumerate(options) if len(available) == 2}
     budget: int = 60000
     for start in sorted(bivalue):
@@ -643,8 +645,17 @@ def candidate_review(game: Game) -> Hint | None:
     )
 
 
-def hint_searches(game: Game) -> tuple[Callable[[list[set[int]]], Iterator[Hint]], ...]:
+def hint_searches(
+    game: Game, *, max_chain_links: int | None = None
+) -> tuple[Callable[[list[set[int]]], Iterator[Hint]], ...]:
     """Order technique tiers explicitly, keeping expensive general searches last."""
+    # An XY-Chain uses one link in each cell and one between consecutive cells.
+    xy_cells: int = 24 if max_chain_links is None else min(24, (max_chain_links + 1) // 2)
+    inference_links: int = (
+        MAX_INFERENCE_LINKS
+        if max_chain_links is None
+        else min(MAX_INFERENCE_LINKS, max_chain_links)
+    )
     return (
         singles_hints,
         locked_candidates_hints,
@@ -663,19 +674,19 @@ def hint_searches(game: Game) -> tuple[Callable[[list[set[int]]], Iterator[Hint]
         turbot_chain_hints,
         coloring_hints,
         lambda options: uniqueness_hints(game, options),
-        lambda options: xy_chain_hints(options, max_cells=8),
+        lambda options: xy_chain_hints(options, max_cells=min(8, xy_cells)),
         lambda options: finned_fish_hints(options, 2),
         lambda options: finned_fish_hints(options, 3),
         lambda options: finned_fish_hints(options, 4),
-        lambda options: xy_chain_hints(options, min_cells=9),
+        lambda options: xy_chain_hints(options, max_cells=xy_cells, min_cells=9),
         lambda options: complex_fish_hints(options, 2),
         lambda options: complex_fish_hints(options, 3),
         lambda options: complex_fish_hints(options, 4),
         lambda options: finned_complex_fish_hints(options, 2),
         lambda options: finned_complex_fish_hints(options, 3),
         lambda options: finned_complex_fish_hints(options, 4),
-        inference_chain_hints,
-        lambda options: inference_chain_hints(options, grouped=True),
+        lambda options: inference_chain_hints(options, max_links=inference_links),
+        lambda options: inference_chain_hints(options, grouped=True, max_links=inference_links),
     )
 
 

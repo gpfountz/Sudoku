@@ -10,6 +10,7 @@ import time
 from collections.abc import Callable, Iterator
 from dataclasses import replace
 from pathlib import Path
+from threading import Event
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock
@@ -41,7 +42,8 @@ from sudoku.hints import hint_steps
 from sudoku.history import GameHistoryEntry, HistoryStore
 from sudoku.history_ui import HistoryWindow
 from sudoku.legal import COPYRIGHT_NOTICE, license_text, third_party_text
-from sudoku.model import LEVELS, Game, Preferences, Snapshot
+from sudoku.model import LEVELS, Game, Preferences, Puzzle, Snapshot
+from sudoku.player import PuzzleChoice
 from sudoku.puzzle_import import ValidatedImport
 from sudoku.storage import Store, game_data
 from sudoku.theme import DEFAULT_THEME, THEMES, WARM_PAPER_THEME, theme_for_name
@@ -1202,6 +1204,7 @@ def test_settings_use_native_switches(native_controller: Any) -> None:
             "cleanup_notes",
             "show_timer",
             "game_sounds",
+            "avoid_long_chains",
             "daily_enabled",
         ):
             toggle: Any = controller.settings_controls[key]
@@ -1215,6 +1218,50 @@ def test_settings_use_native_switches(native_controller: Any) -> None:
             assert contains(content, label)
     finally:
         controller.settings_window.close()
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+def test_short_chain_search_dialog(
+    native_controller: Any, isolated_catalog: Catalog, monkeypatch: pytest.MonkeyPatch, cancel: bool
+) -> None:
+    """Finish the modal search on a worker result and allow native cancellation."""
+    controller: Any = native_controller
+    application: Any = AK.NSApplication.sharedApplication()
+    dialog: Any = controller.build_message_dialog("Finding a puzzle…", "", ("Cancel",))
+    controller.build_message_dialog = Mock(return_value=dialog)
+    choice: PuzzleChoice = PuzzleChoice(1, 12, 1, isolated_catalog["Easy"][0])
+    controller.store = Mock()
+    controller.store.sample_games.return_value = (choice,)
+    release: Event = Event()
+    shown: list[bool] = []
+
+    def check(puzzle: Puzzle) -> bool:
+        """Wait for the native dialog to appear before returning the worker result."""
+        return release.wait(2)
+
+    def interact(timer: Any) -> None:
+        """Use the actual Cancel button or let the worker finish."""
+        shown.append(application.modalWindow() == dialog.window())
+        if cancel:
+            dialog.buttons()[0].performClick_(None)
+        else:
+            release.set()
+
+    monkeypatch.setattr("sudoku.app.solves_without_long_chains", check)
+    timer: Any = NSTimer.timerWithTimeInterval_repeats_block_(0.1, False, interact)
+    guard: Any = NSTimer.timerWithTimeInterval_repeats_block_(
+        3, False, lambda timer: application.abortModal()
+    )
+    for scheduled in (timer, guard):
+        NSRunLoop.mainRunLoop().addTimer_forMode_(scheduled, AK.NSModalPanelRunLoopMode)
+    try:
+        assert controller.find_short_chain_game("Easy") == (None if cancel else choice)
+        assert shown == [True]
+    finally:
+        release.set()
+        timer.invalidate()
+        guard.invalidate()
+        dialog.window().close()
 
 
 @pytest.mark.parametrize("appearance", ["Light", "Dark"])

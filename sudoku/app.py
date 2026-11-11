@@ -8,8 +8,10 @@ import os
 import sqlite3
 import time
 from collections.abc import Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 import AppKit as AK
@@ -43,12 +45,16 @@ from sudoku.imported import is_imported
 from sudoku.layout import MINIMUM_CONTENT_SIZE, AdaptiveLayout, fit_window_frame
 from sudoku.legal import COPYRIGHT_NOTICE, license_text, third_party_text
 from sudoku.model import LEVELS, Game, Preferences, Puzzle
+from sudoku.player import PuzzleChoice
+from sudoku.puzzle_filter import solves_without_long_chains
 from sudoku.puzzle_import import ValidatedImport
 from sudoku.statistics_ui import StatisticsWindow
 from sudoku.storage import SaveError, Store
 from sudoku.theme import DEFAULT_THEME, Theme, theme_for_name
 from sudoku.theme_names import THEME_NAMES
 from sudoku.version import APP_VERSION
+
+SHORT_CHAIN_SEARCH_LIMIT: int = 64
 
 
 class AppController(NSObject):
@@ -1165,24 +1171,86 @@ class AppController(NSObject):
         alert: Any = self.build_new_game_dialog()
         popup: Any = alert.accessoryView()
         if alert.runModal() == AK.NSAlertFirstButtonReturn:
+            level: str = str(popup.titleOfSelectedItem())
             abandoned: bool = False
             try:
+                choice: PuzzleChoice | None = None
+                if self.preferences.avoid_long_chains:
+                    choice = self.find_short_chain_game(level)
+                    if choice is None:
+                        self.window.makeFirstResponder_(self.board)
+                        return
                 if not self.regular_game.complete:
                     abandoned = self.history.record_outcome(
                         self.regular_game, "Abandoned", datetime.now(UTC).isoformat()
                     )
-                next_game: Game = self.store.start_game(str(popup.titleOfSelectedItem()))
+                next_game: Game = self.store.start_game(level, choice=choice)
             except SaveError as error:
                 if abandoned:
                     self.history.remove_outcome(self.regular_game.attempt_id)
                 self.alert("Cannot start a puzzle", str(error))
-                return
-            self.regular_game = next_game
-            self.active_daily_date = None
-            self.game = self.regular_game
-            self.last_tick = time.monotonic()
-            self.changed()
+            else:
+                self.regular_game = next_game
+                self.active_daily_date = None
+                self.game = self.regular_game
+                self.last_tick = time.monotonic()
+                self.changed()
         self.window.makeFirstResponder_(self.board)
+
+    @objc.python_method
+    def find_short_chain_game(self, level: str) -> PuzzleChoice | None:
+        """Screen a sample in the background and return None if the player cancels."""
+        choices: tuple[PuzzleChoice, ...] = self.store.sample_games(level, SHORT_CHAIN_SEARCH_LIMIT)
+        cancelled: Event = Event()
+
+        def find_choice() -> PuzzleChoice | None:
+            """Stop at the first certified puzzle or at the next check after cancellation."""
+            for choice in choices:
+                if cancelled.is_set():
+                    return None
+                if solves_without_long_chains(choice.puzzle):
+                    return choice
+            return None
+
+        alert: Any = self.build_message_dialog(
+            "Finding a puzzle…",
+            f"Checking {level} puzzles for a solve without long chains.",
+            ("Cancel",),
+        )
+        indicator: Any = AK.NSProgressIndicator.alloc().initWithFrame_(AK.NSMakeRect(0, 0, 24, 24))
+        indicator.setStyle_(AK.NSProgressIndicatorStyleSpinning)
+        alert.setAccessoryView_(indicator)
+        alert.buttons()[0].setKeyEquivalent_("\x1b")
+        application: Any = AK.NSApplication.sharedApplication()
+        executor: ThreadPoolExecutor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="Sudoku puzzle filter"
+        )
+        future: Future[PuzzleChoice | None] = executor.submit(find_choice)
+
+        def poll(timer: Any) -> None:
+            """Close the progress dialog when the worker finishes."""
+            if future.done():
+                application.stopModalWithCode_(AK.NSModalResponseOK)
+
+        timer: Any = NSTimer.timerWithTimeInterval_repeats_block_(0.05, True, poll)
+        try:
+            if not future.done():
+                NSRunLoop.mainRunLoop().addTimer_forMode_(timer, AK.NSModalPanelRunLoopMode)
+                indicator.startAnimation_(None)
+                if alert.runModal() != AK.NSModalResponseOK:
+                    return None
+            choice: PuzzleChoice | None = future.result()
+        finally:
+            cancelled.set()
+            timer.invalidate()
+            indicator.stopAnimation_(None)
+            executor.shutdown(wait=False, cancel_futures=True)
+        if choice is None:
+            raise SaveError(
+                f"No matching {level} puzzle was found in this search. Try again, choose a "
+                "different difficulty, or turn off Avoid long chains in Sudoku Settings."
+            )
+        return choice
 
     @objc.python_method
     def format_daily_date(self, day: date) -> str:
@@ -1556,6 +1624,7 @@ class AppController(NSObject):
             "cleanup_notes",
             "show_timer",
             "game_sounds",
+            "avoid_long_chains",
             "daily_enabled",
         ):
             self.settings_controls[name].setState_(int(getattr(self.preferences, name)))
@@ -1567,7 +1636,7 @@ class AppController(NSObject):
     def build_settings(self) -> None:
         """Construct labeled Cocoa appearance, theme, and assistance preferences."""
         self.settings_window = AK.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-            AK.NSMakeRect(0, 0, 470, 619),
+            AK.NSMakeRect(0, 0, 470, 656),
             AK.NSWindowStyleMaskTitled | AK.NSWindowStyleMaskClosable,
             AK.NSBackingStoreBuffered,
             False,
@@ -1577,9 +1646,9 @@ class AppController(NSObject):
         self.settings_window.center()
         content: Any = self.settings_window.contentView()
         for key, title, options, position in (
-            ("appearance", "Appearance", ["System", "Light", "Dark"], 562),
-            ("theme", "Theme", list(THEME_NAMES), 512),
-            ("error_check", "Show errors", ["Off", "Rule Conflicts", "Against Solution"], 462),
+            ("appearance", "Appearance", ["System", "Light", "Dark"], 599),
+            ("theme", "Theme", list(THEME_NAMES), 549),
+            ("error_check", "Show errors", ["Off", "Rule Conflicts", "Against Solution"], 499),
             ("daily_minimum", "Daily minimum", list(LEVELS), 110),
             ("daily_maximum", "Daily maximum", list(LEVELS), 60),
         ):
@@ -1609,10 +1678,11 @@ class AppController(NSObject):
                 ("cleanup_notes", "Remove peer candidates when entering answers"),
                 ("show_timer", "Show elapsed play time"),
                 ("game_sounds", "Play game sounds"),
+                ("avoid_long_chains", "Avoid long chains"),
                 ("daily_enabled", "Enable Daily Game"),
             )
         ):
-            switch_y: float = 417 - row * 37
+            switch_y: float = 454 - row * 37
             switch_label: Any = self.label(title)
             switch_label.setFrame_(AK.NSMakeRect(25, switch_y - 3, 350, 34))
             switch_label.setLineBreakMode_(AK.NSLineBreakByWordWrapping)
@@ -1624,6 +1694,8 @@ class AppController(NSObject):
             toggle.setAction_("preferenceChanged:")
             toggle.setIdentifier_(key)
             toggle.setAccessibilityLabel_(title)
+            if key == "avoid_long_chains":
+                toggle.setToolTip_("Applies when starting a new regular puzzle.")
             content.addSubview_(toggle)
             self.settings_controls[key] = toggle
             self.settings_controls[f"{key}_label"] = switch_label

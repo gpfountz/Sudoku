@@ -4,6 +4,8 @@
 
 """Versioned atomic local persistence with recovery and strict save validation."""
 
+from __future__ import annotations
+
 import fcntl
 import json
 import math
@@ -21,7 +23,7 @@ from sudoku.model import COMPLETION_RANKS, Game, Preferences, Puzzle, Snapshot
 if TYPE_CHECKING:
     from sudoku.catalog import Catalog
     from sudoku.imported import ImportedStore
-    from sudoku.player import PlayerStore
+    from sudoku.player import PlayerStore, PuzzleChoice
 
 PENDING_DAILY_COMPLETIONS: str = "pending-daily-completions"
 # AppKit calls these stores synchronously. Autosave can retry after a longer lock clears.
@@ -322,11 +324,17 @@ class Store:
         self.players = PlayerStore(self, catalog)
         return self.players.load_game()
 
-    def start_game(self, level: str) -> Game:
+    def sample_games(self, level: str, limit: int) -> tuple[PuzzleChoice, ...]:
+        """Read a bounded set of candidates for regular puzzle screening."""
+        if self.players is None:
+            raise SaveError("Regular storage has not been initialized")
+        return self.players.sample_games(level, limit)
+
+    def start_game(self, level: str, *, choice: PuzzleChoice | None = None) -> Game:
         """Persist a newly selected puzzle without replacing earlier unfinished games."""
         if self.players is None:
             raise SaveError("Regular storage has not been initialized")
-        return self.players.start_game(level)
+        return self.players.start_game(level, choice=choice)
 
     def start_replay(self, identifier: str, *, activate: bool = True) -> Game:
         """Start a fresh regular attempt on an exact previously solved puzzle."""
