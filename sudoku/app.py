@@ -747,8 +747,6 @@ class AppController(NSObject):
             f"{hints}  ·  Reveals: {len(game.revealed_cells)}\n"
             f"Incorrect answers: {len(game.incorrect_entries)}"
         )
-        if game.viewed_hints is not None and game.auto_completed_cells:
-            message += f"\nCells filled by Auto Complete: {len(game.auto_completed_cells)}"
         alert: Any = self.build_message_dialog(
             "Puzzle complete", f"{rank} solve\n\n{message}" if rank else message
         )

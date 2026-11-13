@@ -99,7 +99,6 @@ def game_data(game: Game) -> dict[str, Any]:
         "viewed_hint_stages": sorted(game.viewed_hint_stages),
         "viewed_hints": sorted(game.viewed_hints) if game.viewed_hints is not None else None,
         "revealed_cells": sorted(game.revealed_cells),
-        "auto_completed_cells": sorted(game.auto_completed_cells),
         "incorrect_entries": [list(entry) for entry in sorted(game.incorrect_entries)],
         "solved_at": game.solved_at,
         "completion_rank": game.completion_rank,
@@ -164,7 +163,6 @@ def game_from_data(data: dict[str, Any], puzzle: Puzzle) -> Game:
     viewed: Any = data.get("viewed_hints")
     game.viewed_hints = None if viewed is None else parse_hint_keys(viewed)
     game.revealed_cells = parse_assisted_cells(data.get("revealed_cells", []))
-    game.auto_completed_cells = parse_assisted_cells(data.get("auto_completed_cells", []))
     incorrect: Any = data.get("incorrect_entries", [])
     if not isinstance(incorrect, list) or any(
         not isinstance(entry, list)

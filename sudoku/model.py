@@ -112,7 +112,6 @@ class Game:
     viewed_hint_stages: set[str] = field(default_factory=set)
     viewed_hints: set[str] | None = field(default_factory=set)
     revealed_cells: set[int] = field(default_factory=set)
-    auto_completed_cells: set[int] = field(default_factory=set)
     incorrect_entries: set[tuple[int, int]] = field(default_factory=set)
     solved_at: str | None = None
     completion_rank: str | None = None
@@ -295,7 +294,6 @@ class Game:
                 if self.values[index]:
                     continue
                 self.values[index] = digit
-                self.auto_completed_cells.add(index)
                 self.notes[index].clear()
                 if cleanup:
                     for peer in PEERS[index]:
@@ -364,7 +362,7 @@ class Game:
         """Award a rank when the attempt has complete assistance tracking."""
         if self.viewed_hints is None:
             return None
-        if self.revealed_cells or self.auto_completed_cells:
+        if self.revealed_cells:
             return "Good"
         if not self.incorrect_entries and not self.viewed_hints:
             return "Excellent"

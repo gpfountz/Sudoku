@@ -204,10 +204,10 @@ distinct cell and wrong digit once, including after Undo. These counters survive
 
 ### Completion celebrations
 
-**Excellent** is a solve with no incorrect entries, hints, reveals, or Auto Complete placements.
-**Great** allows up to two incorrect entries and one logical hint, with no reveals or Auto Complete
-placements. **Good** celebrates every other solve. Each logical hint counts once for ranking even if
-you read every stage. Elapsed time appears in the summary.
+**Excellent** is a solve with no incorrect entries, hints, or reveals. **Great** allows up to two
+incorrect entries and one logical hint, with no reveals. **Good** celebrates every other solve.
+Each logical hint counts once for ranking even if you read every stage. You can use Auto Complete
+freely and earn the same rank and celebration. Elapsed time appears in the summary.
 
 Numbered Sudoku tiles sweep across the solved grid and result window. Each step in difficulty
 adds one level of celebration, and each step in rank adds two, for ten levels in all. macOS Reduce
