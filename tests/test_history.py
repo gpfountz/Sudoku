@@ -56,19 +56,22 @@ def test_completion_awards_and_saves_rank_once(game: Game) -> None:
         (0, 2, False, False, "Good"),
         (3, 0, False, False, "Good"),
         (0, 0, True, False, "Good"),
-        (0, 0, False, True, "Good"),
+        (0, 0, False, True, "Excellent"),
+        (2, 1, False, True, "Great"),
     ),
 )
 def test_ranking_boundaries(
     game: Game, mistakes: int, hints: int, revealed: bool, automatic: bool, rank: str
 ) -> None:
-    """Count logical hints and distinct errors and limit answer-assisted solves."""
+    """Rank mistakes, hints, and reveals while accepting older Auto Complete data."""
     game.incorrect_entries = {(index, 9) for index in range(1, mistakes + 1)}
     game.viewed_hints = {str(index) * 64 for index in range(hints)}
     game.viewed_hint_stages = {"a" * 64, "b" * 64, "c" * 64}
     game.revealed_cells = {1} if revealed else set()
-    game.auto_completed_cells = {2} if automatic else set()
-    restored: Game = game_from_data(game_data(game), game.puzzle)
+    payload: dict[str, Any] = game_data(game)
+    if automatic:
+        payload["auto_completed_cells"] = [2]
+    restored: Game = game_from_data(payload, game.puzzle)
     assert restored.rank_for_completion() == rank
 
 

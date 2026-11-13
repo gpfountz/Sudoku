@@ -1816,7 +1816,9 @@ def test_completion_overlay_runs_during_native_alert(
     """Draw above the alert and keep OK usable while the tiles are active."""
     controller: Any = native_controller
     controller.game.values = list(controller.game.puzzle.solution)
-    controller.game.completion_rank = "Excellent"
+    controller.game.values[1] = 0
+    assert controller.game.auto_complete_singles() == 1
+    controller.game.completion_rank = controller.game.rank_for_completion()
     application: Any = AK.NSApplication.sharedApplication()
     reduce_motion: bool = AK.NSWorkspace.sharedWorkspace().accessibilityDisplayShouldReduceMotion()
     controller.window.orderFront_(None)
@@ -1887,6 +1889,7 @@ def test_completion_overlay_runs_during_native_alert(
     title, message, count, panel_frame = observed[0]
     assert title == "Puzzle complete"
     assert "Excellent solve\n\nLevel: Easy\nTime: 0:00" in message
+    assert "Auto Complete" not in message
     assert count == (0 if reduce_motion else 42)
     assert bool(drawn) != reduce_motion
     assert panel_frame.origin.x == pytest.approx(positioned[0].origin.x, abs=1)
