@@ -13,7 +13,7 @@ ACCENT_PALETTES: dict[str, tuple[str, str]] = {
     "Default Bronze": ("79500F", "E4BD75"),
     "Default Olive": ("58621E", "C0CE80"),
     "Default Espresso": ("6D4C3C", "DCB59D"),
-    "Default Graphite": ("50545A", "B9C0C9"),
+    "Default Graphite": ("70747A", "B9C0C9"),
     "Default Orchid": ("843E7C", "E4A5DA"),
 }
 
