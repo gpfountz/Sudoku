@@ -48,8 +48,8 @@ obligation has been fulfilled.
 
 ## Dependency and notice maintenance
 
-The current inventory records CPython 3.14.6, PyObjC 13.0, NumPy 2.5.4,
-opencv-python-headless 5.0.0.93, py2app 0.28.10, and setuptools 84.2.1. It includes the wheel-supplied license
+The current inventory records CPython 3.14.6, PyObjC 13.0, NumPy 2.5.5,
+opencv-python-headless 5.1.0.95, py2app 0.28.10, and setuptools 84.2.1. It includes the wheel-supplied license
 texts, upstream PyObjC notices omitted from the core, Vision, and CoreML wheels, and SHA-256
 hashes of OpenCV's bundled native libraries. Source development supports the project's declared Python range.
 For local packaging, the recorded Python version is the minimum reviewed patch: stable
@@ -63,6 +63,8 @@ The [October 26 dependency review](dependency-review-2026-10-26.md) records the 
 NumPy and setuptools artifact, notice, and compatibility checks.
 The [October 31 dependency review](dependency-review-2026-10-31.md) records the PyObjC 13
 migration, development-tool updates, and refreshed notice and compatibility checks.
+The [November 19 dependency review](dependency-review-2026-11-19.md) records the OpenCV 5.1
+native-payload re-audit, NumPy and tooling updates, and refreshed notices.
 
 On October 19, 2026, the installed Homebrew CPython 3.14.8 (`3.14.8_2`) root `LICENSE` and
 standard-library `LICENSE.txt` both matched the recorded Python 3.14.6 notice exactly, with SHA-256
@@ -89,8 +91,9 @@ copy as well; automated checks require the copies to match.
 
 ## Publishing a standalone app
 
-**The current OpenCV wheel has an unresolved binary provenance issue.** Its FFmpeg binary
-reports GPLv3-or-later, while the supplied third-party notice describes FFmpeg as LGPL.
+**The current OpenCV wheel has an incomplete binary provenance record.** Its FFmpeg binary
+now reports LGPL 2.1-or-later, matching the supplied notice, but the wheel also bundles
+libraries (including libX11, libXdmcp, xz, and, on Intel, VMAF) that the supplied notice omits.
 See the [binary audit](opencv-binary-audit.md). Adoption of GPLv3 for this repository does
 not resolve missing notices, source, or build materials for those bundled libraries.
 

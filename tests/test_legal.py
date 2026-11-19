@@ -43,7 +43,8 @@ def test_upstream_notices_and_puzzle_dedication_are_preserved() -> None:
     assert (ROOT / "sudoku/data/PUZZLE-LICENSE.txt").read_text() in content
     for notice in inventory["notices"]:
         assert (LICENSES / "third-party" / notice["file"]).read_text() in content
-    assert "GPL version 3 or later" in content
+    assert "LGPL version 2.1 or later" in content
+    assert "not treat it as a complete, verified license inventory" in content
     assert "https://github.com/opencv/opencv-python/issues/1260" in content
 
 

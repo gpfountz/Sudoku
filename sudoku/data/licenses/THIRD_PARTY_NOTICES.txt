@@ -7,7 +7,7 @@ hashes, and the native libraries present in the reviewed macOS wheels.
 
 Python: Python Software Foundation license and historical notices.
 PyObjC 13.0 (core, Cocoa, Quartz, Vision, CoreML): MIT license.
-NumPy 2.5.4: BSD and additional licenses reproduced in the wheel notices.
+NumPy 2.5.5: BSD and additional licenses reproduced in the wheel notices.
 OpenCV Python wrapper: MIT; OpenCV and embedded components: see the full
 upstream LICENSE-3RD-PARTY text, including Apache, BSD, GPL and LGPL notices.
 Setuptools 84.2.1 and its vendored helpers: MIT and additional bundled notices.
@@ -15,12 +15,15 @@ py2app launcher: MIT or PSF terms; the upstream text is included here.
 Apple frameworks are supplied by macOS and are not redistributed here.
 
 Important OpenCV binary provenance qualification
-The reviewed opencv-python-headless 5.0.0.93 macOS ARM64 wheel contains
-99 native libraries. Its libavcodec reports "GPL version 3 or later" and
-was built with --enable-gpl and --enable-version3. The upstream bundled
-notice describes FFmpeg as LGPL. Preserve that notice, but do not treat
-it as a complete, verified license inventory for every native library.
-This discrepancy is tracked at:
+The reviewed opencv-python-headless 5.1.0.95 macOS wheels contain 16
+(ARM64) and 19 (Intel) native libraries. Their libavcodec reports
+"LGPL version 2.1 or later" and was built from Homebrew ffmpeg-lgpl 9.0.2
+without --enable-gpl. The wheels also bundle OpenSSL 4.1.0, X11/XCB, xz,
+libvpx and dav1d, and on Intel also libaom, libavif and VMAF. The upstream
+bundled notice has no sections for libX11, libXdmcp, xz or VMAF. Preserve it,
+but do not treat it as a complete, verified license inventory for every native
+library. The earlier 5.0.0.93 ARM64 wheel bundled a GPL version 3 or later
+FFmpeg build; that discrepancy is tracked at:
 https://github.com/opencv/opencv-python/issues/1260
 
 Before publishing an app binary, resolve the exact licenses and matching
