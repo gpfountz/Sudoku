@@ -1289,7 +1289,13 @@ class AppController(NSObject):
                 level: str = choose_daily_level(
                     self.catalog, self.preferences.daily_minimum, self.preferences.daily_maximum
                 )
-                selected_game = self.store.start_daily_game(today, level)
+                choice: PuzzleChoice | None = None
+                if self.preferences.avoid_long_chains:
+                    choice = self.find_short_chain_game(level)
+                    if choice is None:
+                        self.window.makeFirstResponder_(self.board)
+                        return
+                selected_game = self.store.start_daily_game(today, level, choice=choice)
             if selected_game.complete:
                 return
             if self.history.has_outcome(selected_game.attempt_id):
@@ -1693,7 +1699,7 @@ class AppController(NSObject):
             toggle.setIdentifier_(key)
             toggle.setAccessibilityLabel_(title)
             if key == "avoid_long_chains":
-                toggle.setToolTip_("Applies when starting a new regular puzzle.")
+                toggle.setToolTip_("Applies when starting a new regular or daily puzzle.")
             content.addSubview_(toggle)
             self.settings_controls[key] = toggle
             self.settings_controls[f"{key}_label"] = switch_label

@@ -432,3 +432,38 @@ def test_matching_import_publication_failure_does_not_mark_played(
     assert controller.history.count() == 0
     assert not controller.store.players.has_played(puzzle)
     assert controller.store.load_game(controller.catalog).attempt_id == previous.attempt_id
+
+
+@pytest.mark.parametrize("screening", ["off", "match", "cancel", "no match"])
+def test_daily_game_honors_avoid_long_chains(
+    controller: Any, monkeypatch: pytest.MonkeyPatch, screening: str
+) -> None:
+    """Screen a new daily assignment and leave the date unassigned when screening stops."""
+    monkeypatch.setattr("sudoku.app.choose_daily_level", lambda *_: "Medium")
+    previous: Game = controller.game
+    controller.preferences.avoid_long_chains = screening != "off"
+    choice: PuzzleChoice = controller.store.sample_games("Medium", 1)[0]
+    no_match: SaveError = SaveError("No matching Medium puzzle")
+    controller.find_short_chain_game = Mock(
+        return_value=choice if screening == "match" else None,
+        side_effect=no_match if screening == "no match" else None,
+    )
+    controller.dailyGames_(None)
+    if screening == "off":
+        controller.find_short_chain_game.assert_not_called()
+    else:
+        controller.find_short_chain_game.assert_called_once_with("Medium")
+    if screening in ("cancel", "no match"):
+        assert controller.game is previous
+        assert controller.active_daily_date is None
+        assert not controller.store.daily_game_exists(controller.current_day)
+        if screening == "no match":
+            controller.alert.assert_called_once_with("Cannot start daily game", str(no_match))
+        else:
+            controller.alert.assert_not_called()
+        return
+    assert controller.active_daily_date == controller.current_day
+    assert controller.store.daily_game_exists(controller.current_day)
+    assert controller.game.puzzle.level == "Medium"
+    if screening == "match":
+        assert controller.game.puzzle == choice.puzzle

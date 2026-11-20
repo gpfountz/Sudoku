@@ -364,15 +364,15 @@ class Store:
         path: Path = self.directory / "catalog-daily-games" / f"{day}.json"
         return path.exists() or path.with_suffix(".backup.json").exists()
 
-    def start_daily_game(self, day: str, level: str) -> Game:
-        """Assign one catalog puzzle to a date using the regular selection rotation."""
+    def start_daily_game(self, day: str, level: str, *, choice: PuzzleChoice | None = None) -> Game:
+        """Assign one catalog puzzle, optionally pre-screened, using the regular rotation."""
         if date.fromisoformat(day).isoformat() != day:
             raise SaveError("Invalid daily game date")
         if self.players is None:
             raise SaveError("Player storage has not been initialized")
         if self.daily_game_exists(day):
             raise SaveError("A daily puzzle has already been assigned for this date")
-        game: Game = self.players.select_game(level)
+        game: Game = self.players.select_game(level, choice=choice)
         self.save_daily_game(day, game)
         return game
 
